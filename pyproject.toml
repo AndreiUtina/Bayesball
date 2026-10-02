@@ -1,0 +1,33 @@
+[project]
+name = "bayesball"
+version = "0.1.0"
+description = "Bayesian rating and match prediction for foosball (and other games)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.142.2",
+    "jinja2>=3.1.6",
+    "numpy>=2.5.3",
+    "scipy>=1.18.1",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
