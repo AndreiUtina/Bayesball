@@ -1,0 +1,33 @@
+/* Small additions on top of Pico CSS. */
+
+header nav, header nav ul { flex-wrap: wrap; }
+@media (max-width: 576px) {
+  header nav { flex-direction: column; align-items: flex-start; }
+}
+.brand { text-decoration: none; }
+
+.tabs ul { gap: 0.25rem; flex-wrap: wrap; }
+.tabs a[aria-current="page"] { font-weight: bold; text-decoration: underline; }
+
+.notice { padding: 0.75rem 1rem; border-left: 4px solid; }
+.notice.success { border-left-color: var(--pico-ins-color); }
+.notice.error { border-left-color: var(--pico-del-color); }
+
+.changes { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+.changes li { list-style: none; }
+
+.up { color: var(--pico-ins-color); }
+.down { color: var(--pico-del-color); }
+.muted { color: var(--pico-muted-color); }
+
+.badge {
+  font-size: 0.7em;
+  padding: 0.1em 0.45em;
+  border-radius: 0.3em;
+  background: var(--pico-muted-border-color);
+  white-space: nowrap;
+}
+
+.board td, .board th { white-space: nowrap; }
+
+.choices label { display: inline-flex; margin-right: 1.25rem; }

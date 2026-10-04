@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Record game · Bayesball{% endblock %}
+{% block content %}
+<h1>Record game</h1>
+
+{% if error %}<article class="notice error">{{ error }}</article>{% endif %}
+
+{% if players|length < 2 %}
+<article>
+  You need at least two players to record a game. <a href="/players/new">Add a player</a>.
+</article>
+{% else %}
+
+{% if formats|length > 1 %}
+<nav class="tabs" hx-boost="true">
+  <ul>
+    {% for f in formats %}
+    <li><a href="/games/new?game_type_id={{ game_type.id }}&format={{ f }}" {% if f == fmt %}aria-current="page"{% endif %}>{{ f }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+<form method="post" action="/games/new">
+  <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
+  <input type="hidden" name="format" value="{{ fmt }}">
+
+  <div class="grid">
+    {% for field, team in [("a", "Team A"), ("b", "Team B")] %}
+    <fieldset>
+      <legend><strong>{{ team }}</strong></legend>
+      {% for role in seat_roles %}
+      {% set chosen = values[field][loop.index0] %}
+      <label>{{ role|capitalize if role else "Player" }}
+        <select name="{{ field }}" required>
+          <option value="">Choose…</option>
+          {% for p in players %}
+          <option value="{{ p.id }}" {% if chosen == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+  </div>
+
+  {% if game_type.points_to_win %}
+  <fieldset class="choices">
+    <legend>Who won? <small class="muted">(the winner has {{ game_type.points_to_win }})</small></legend>
+    <label><input type="radio" name="winner" value="A" required {% if values.winner == "A" %}checked{% endif %}> Team A</label>
+    <label><input type="radio" name="winner" value="B" {% if values.winner == "B" %}checked{% endif %}> Team B</label>
+  </fieldset>
+  <label>Loser's score
+    <select name="loser_score" required>
+      <option value="">Choose…</option>
+      {% for s in range(game_type.points_to_win) %}
+      <option value="{{ s }}" {% if values.loser_score == s|string %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% else %}
+  <div class="grid">
+    <label>Team A score <input type="number" name="score_a" min="0" required value="{{ values.score_a }}"></label>
+    <label>Team B score <input type="number" name="score_b" min="0" required value="{{ values.score_b }}"></label>
+  </div>
+  {% endif %}
+
+  <details {% if values.played_at or values.notes %}open{% endif %}>
+    <summary>Date and notes</summary>
+    <label>Played at <small class="muted">(leave empty for now)</small>
+      <input type="datetime-local" name="played_at" value="{{ values.played_at }}">
+    </label>
+    <label>Notes
+      <input name="notes" maxlength="200" value="{{ values.notes }}">
+    </label>
+  </details>
+
+  <button type="submit">Save game</button>
+</form>
+{% endif %}
+{% endblock %}

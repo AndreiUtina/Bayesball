@@ -1,5 +1,90 @@
 {% extends "base.html" %}
+{% block title %}Leaderboard · Bayesball{% endblock %}
 {% block content %}
-<h1>Leaderboard</h1>
-<p>Bayesian foosball rankings are coming soon.</p>
+
+{% if result %}
+<article class="notice success">
+  <strong>{{ result.headline }}</strong>
+  <ul class="changes">
+    {% for seat in result.seats %}
+    <li>{{ seat.name }}{% if seat.role %} <small>({{ seat.role }})</small>{% endif %}
+      <span class="{{ 'up' if seat.change >= 0 else 'down' }}">{{ "%+.2f"|format(seat.change) }}</span></li>
+    {% endfor %}
+  </ul>
+</article>
+{% endif %}
+{% if added %}
+<article class="notice success">
+  Added <strong>{{ added.name }}</strong>. They're marked provisional until they've played
+  {{ provisional_games }} games.
+</article>
+{% endif %}
+
+<hgroup>
+  <h1>Leaderboard</h1>
+  <p>{{ game_type.name }}</p>
+</hgroup>
+
+{% if game_types|length > 1 %}
+<nav class="tabs" hx-boost="true">
+  <ul>
+    {% for gt in game_types %}
+    <li><a href="/?game_type_id={{ gt.id }}" {% if gt.id == game_type.id %}aria-current="page"{% endif %}>{{ gt.name }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+
+{% if rows %}
+  {% if tabs %}
+  <nav class="tabs" hx-boost="true">
+    <ul>
+      {% for key, label in tabs %}
+      <li><a href="/?game_type_id={{ game_type.id }}&tab={{ key }}" {% if key == tab %}aria-current="page"{% endif %}>{{ label }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+  <div class="overflow-auto">
+    <table class="board striped">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Player</th>
+          <th title="skill − {{ ranking_k|int }} × uncertainty">Score</th>
+          <th>Skill</th>
+          <th>Games</th>
+          <th>{{ "W-L-D" if game_type.allow_draws else "W-L" }}</th>
+          <th title="change in the player's last game">Last</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>{{ row.rank }}</td>
+          <td>{{ row.name }}{% if row.provisional %} <small class="badge">provisional</small>{% endif %}</td>
+          <td><strong>{{ "%.1f"|format(row.score) }}</strong></td>
+          <td>{{ "%+.1f"|format(row.mu) }} <small class="muted">± {{ "%.1f"|format(row.sigma) }}</small></td>
+          <td>{{ row.games }}</td>
+          <td>{{ row.wins }}-{{ row.losses }}{% if game_type.allow_draws %}-{{ row.draws }}{% endif %}</td>
+          <td>
+            {% if row.change is not none %}
+            <span class="{{ 'up' if row.change >= 0 else 'down' }}">{{ "▲" if row.change >= 0 else "▼" }} {{ "%.2f"|format(row.change|abs) }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p><small class="muted">
+    <strong>Skill</strong> is the best guess in goals of score margin against an average player
+    (0 = average), ± the uncertainty. <strong>Score</strong> = skill − {{ ranking_k|int }} × uncertainty,
+    so a player only ranks high once the results have shown they are good.
+  </small></p>
+{% else %}
+<article>
+  No players yet. <a href="/players/new">Add your first player</a>.
+</article>
+{% endif %}
 {% endblock %}

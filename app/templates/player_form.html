@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Add player · Bayesball{% endblock %}
+{% block content %}
+<h1>Add player</h1>
+
+{% if error %}<article class="notice error">{{ error }}</article>{% endif %}
+
+<form method="post" action="/players/new">
+  <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
+
+  <label>
+    Name
+    <input name="name" value="{{ values.name or '' }}" required maxlength="50" autocomplete="off" autofocus>
+  </label>
+
+  <fieldset class="choices">
+    <legend>Experience at {{ game_type.name|lower }}</legend>
+    {% for level, label in experience %}
+    <label><input type="radio" name="level" value="{{ level }}" {% if values.level == level %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+
+  {% if game_type.roles|length > 1 %}
+  <fieldset class="choices">
+    <legend>Stronger at</legend>
+    {% for role in game_type.roles %}
+    <label><input type="radio" name="stronger" value="{{ role }}" {% if values.stronger == role %}checked{% endif %}> {{ role|capitalize }}</label>
+    {% endfor %}
+    <label><input type="radio" name="stronger" value="" {% if not values.stronger %}checked{% endif %}> Both equal</label>
+  </fieldset>
+  {% endif %}
+
+  <fieldset class="choices">
+    <legend>How sure are you?</legend>
+    {% for key in ["low", "medium", "high"] %}
+    <label><input type="radio" name="certainty" value="{{ key }}" {% if values.certainty == key %}checked{% endif %}> {{ key|capitalize }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <details {% if values.mu|select|list or values.sigma|select|list %}open{% endif %}>
+    <summary>Advanced: exact starting values</summary>
+    <p><small class="muted">
+      μ is the skill in goals of score margin against an average player (0 = average); σ is the
+      uncertainty (default {{ game_type.default_sigma }}). Leave empty to use the answers above.
+    </small></p>
+    {% for role in game_type.roles %}
+    <div class="grid">
+      <label>{{ role|capitalize }} μ
+        <input type="number" step="any" name="mu" value="{{ values.mu[loop.index0] }}">
+      </label>
+      <label>{{ role|capitalize }} σ
+        <input type="number" step="any" min="0" name="sigma" value="{{ values.sigma[loop.index0] }}">
+      </label>
+    </div>
+    {% endfor %}
+  </details>
+
+  <button type="submit">Add player</button>
+</form>
+{% endblock %}

@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Bayesball{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
 </head>
 <body>
   <header class="container">
     <nav>
-      <ul><li><strong>⚽ Bayesball</strong></li></ul>
+      <ul><li><a href="/" class="brand"><strong>⚽ Bayesball</strong></a></li></ul>
+      <ul>
+        <li><a href="/" {% if page == "board" %}aria-current="page"{% endif %}>Leaderboard</a></li>
+        <li><a href="/players/new" {% if page == "player" %}aria-current="page"{% endif %}>Add player</a></li>
+        <li><a href="/games/new" {% if page == "game" %}aria-current="page"{% endif %}>Record game</a></li>
+      </ul>
     </nav>
   </header>
   <main class="container">
