@@ -16,14 +16,16 @@ def four(client):
     return {"ann": "1", "bob": "2", "cat": "3", "dan": "4"}
 
 
-def game_form(a, b, winner="A", loser_score="6", **extra):
+def game_form(a, b, *scores, **extra):
+    """Form data for games between the same teams; scores like "10-6", default one game."""
+    scores = scores or ("10-6",)
     return {
         "game_type_id": 1,
         "format": "2v2" if len(a) == 2 else "1v1",
         "a": a,
         "b": b,
-        "winner": winner,
-        "loser_score": loser_score,
+        "row": [str(i) for i in range(len(scores))],
+        "score": list(scores),
         **extra,
     }
 
@@ -77,7 +79,7 @@ def test_record_1v1_game(client, four):
     form = client.get("/games/new?format=1v1").text
     assert form.count('<select name="a"') == 1
 
-    data = game_form([four["cat"]], [four["dan"]], winner="B", loser_score="9")
+    data = game_form([four["cat"]], [four["dan"]], "9-10")
     page = client.post("/games/new", data=data).text
     assert "dan beat cat 10–9" in page
 
@@ -87,8 +89,9 @@ def test_record_1v1_game(client, four):
     [
         ({"a": ["1", "1"]}, "only one seat"),
         ({"b": ["3", ""]}, "pick every player"),
-        ({"winner": ""}, "pick the team that won"),
-        ({"loser_score": "10"}, "loser 0-9"),
+        ({"score": ["ten-four"]}, "e.g. 10-4"),
+        ({"score": ["10-10"]}, "loser 0-9"),
+        ({"score": ["8-6"]}, "winner needs exactly 10"),
         ({"played_at": "yesterday"}, "date and time"),
     ],
 )
@@ -98,6 +101,39 @@ def test_game_errors_keep_the_form(client, four, change, message):
     assert response.status_code == 422
     assert message in response.text
     assert '<option value="1" selected>' in response.text  # the choices are kept
+
+
+@pytest.mark.parametrize("score", ["10-4", "10 - 4", "10–4", "10:4", " 10-4 "])
+def test_score_formats(client, four, score):
+    response = client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], score))
+    assert "beat cat &amp; dan 10–4" in response.text
+
+
+def test_several_games_with_role_swaps(client, four):
+    data = game_form(
+        ["1", "2"], ["3", "4"], "10-4", "7-10", "10-8", swap_a=["1"], swap_b=["1", "2"]
+    )
+    page = client.post("/games/new", data=data).text
+    assert "Game 1: ann &amp; bob beat cat &amp; dan 10–4" in page
+    assert "Game 2: cat &amp; dan beat ann &amp; bob 10–7" in page
+    assert "Game 3: ann &amp; bob beat cat &amp; dan 10–8" in page
+
+    games = client.get("/api/games").json()[::-1]  # oldest first
+    roles = [{s["name"]: s["role"] for s in (*g["side_a"], *g["side_b"])} for g in games]
+    assert roles[0] == {"ann": "attack", "bob": "defence", "cat": "attack", "dan": "defence"}
+    assert roles[1] == {"ann": "defence", "bob": "attack", "cat": "defence", "dan": "attack"}
+    assert roles[2] == {"ann": "attack", "bob": "defence", "cat": "defence", "dan": "attack"}
+    ann = client.get(f"/api/players/{four['ann']}").json()["ratings"][0]
+    assert (ann["wins"], ann["losses"]) == (2, 1)
+
+
+def test_an_invalid_game_saves_nothing(client, four):
+    data = game_form(["1", "2"], ["3", "4"], "10-4", "10-10", swap_a=["1"])
+    response = client.post("/games/new", data=data)
+    assert response.status_code == 422
+    assert "Game 2: the winner needs exactly 10" in response.text
+    assert 'value="10-10"' in response.text and 'name="swap_a" value="1" checked' in response.text
+    assert client.get("/api/games").json() == []
 
 
 def test_game_with_a_date(client, four):
