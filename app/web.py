@@ -1,5 +1,6 @@
 """Website pages (PLAN.md §7): leaderboard, add player, record game. Logins come in Phase 5."""
 
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -80,13 +81,13 @@ class BoardRow:
 @dataclass(frozen=True)
 class SeatResult:
     name: str
-    role: str | None
-    change: float
+    role: str | None  # None if the player switched roles between the games
+    change: float  # total over the games
 
 
 @dataclass(frozen=True)
-class GameResult:
-    headline: str  # e.g. "ann & bob beat cat & dan 10–6"
+class GamesResult:
+    headlines: list[str]  # e.g. "ann & bob beat cat & dan 10–6", one per game
     seats: list[SeatResult]
 
 
@@ -138,23 +139,37 @@ def leaderboard_rows(session: Session, game_type: GameType, role: str | None) ->
     ]
 
 
-def game_result(session: Session, game: Game, game_type: GameType) -> GameResult:
-    names = dict(session.exec(select(Player.id, Player.name)).all())
-    weights = role_weights(game_type.roles, None)
+def headline(game: Game, names: dict[int, str]) -> str:
     teams: dict[str, list[str]] = {"A": [], "B": []}
-    seats = []
     for part in game.participants:
         teams[part.side].append(names[part.player_id])
-        change = float(weights @ (np.array(part.mu_after) - np.array(part.mu_before)))
-        seats.append(SeatResult(names[part.player_id], part.role, change))
     a, b = " & ".join(teams["A"]), " & ".join(teams["B"])
     if game.outcome == "A":
-        headline = f"{a} beat {b} {game.score_a}–{game.score_b}"
-    elif game.outcome == "B":
-        headline = f"{b} beat {a} {game.score_b}–{game.score_a}"
-    else:
-        headline = f"{a} and {b} drew {game.score_a}–{game.score_b}"
-    return GameResult(headline, seats)
+        return f"{a} beat {b} {game.score_a}–{game.score_b}"
+    if game.outcome == "B":
+        return f"{b} beat {a} {game.score_b}–{game.score_a}"
+    return f"{a} and {b} drew {game.score_a}–{game.score_b}"
+
+
+def games_result(session: Session, games: list[Game], game_type: GameType) -> GamesResult:
+    """What just happened: each game's result and each player's total rating change."""
+    names = dict(session.exec(select(Player.id, Player.name)).all())
+    weights = role_weights(game_type.roles, None)
+    headlines = []
+    changes: dict[int, float] = {}
+    roles: dict[int, set[str | None]] = {}
+    for n, game in enumerate(games, 1):
+        line = headline(game, names)
+        headlines.append(f"Game {n}: {line}" if len(games) > 1 else line)
+        for part in game.participants:
+            delta = np.array(part.mu_after) - np.array(part.mu_before)
+            changes[part.player_id] = changes.get(part.player_id, 0.0) + float(weights @ delta)
+            roles.setdefault(part.player_id, set()).add(part.role)
+    seats = [
+        SeatResult(names[p], next(iter(roles[p])) if len(roles[p]) == 1 else None, change)
+        for p, change in changes.items()
+    ]
+    return GamesResult(headlines, seats)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -163,7 +178,7 @@ def leaderboard(
     session: SessionDep,
     game_type_id: int | None = None,
     tab: str = "overall",
-    game: int | None = None,  # show this game's result (after recording it)
+    game: Annotated[list[int] | None, Query()] = None,  # show these games (just recorded)
     added: int | None = None,  # show "player added" (after adding them)
 ) -> HTMLResponse:
     game_type = pick_game_type(session, game_type_id)
@@ -172,10 +187,9 @@ def leaderboard(
         tab = "overall"
     tabs = [("overall", "Overall"), *((r, r.capitalize()) for r in roles)] if len(roles) > 1 else []
 
-    recorded = session.get(Game, game) if game is not None else None
-    result = None
-    if recorded is not None and recorded.game_type_id == game_type.id:
-        result = game_result(session, recorded, game_type)
+    recorded = [g for g in (session.get(Game, i) for i in game or []) if g is not None]
+    recorded = [g for g in recorded if g.game_type_id == game_type.id]
+    result = games_result(session, recorded, game_type) if recorded else None
     return render(
         request,
         session,
@@ -277,7 +291,9 @@ def create_player(
     return RedirectResponse(f"/?game_type_id={game_type.id}&added={player.id}", status_code=303)
 
 
-# --- Record game -------------------------------------------------------------------------------
+# --- Record games ------------------------------------------------------------------------------
+
+SCORE = re.compile(r"\s*(\d+)\s*[-–—:]\s*(\d+)\s*")
 
 
 def team_formats(game_type: GameType) -> list[str]:
@@ -301,6 +317,7 @@ def game_form(
     players = session.exec(
         select(Player).where(col(Player.active).is_(True)).order_by(col(Player.name))
     ).all()
+    roles = seat_roles(game_type, fmt)
     return render(
         request,
         session,
@@ -310,9 +327,10 @@ def game_form(
         game_type=game_type,
         fmt=fmt,
         formats=team_formats(game_type),
-        seat_roles=seat_roles(game_type, fmt),
+        seat_roles=roles,
+        swappable=len(roles) == 2,
         players=players,
-        values={"a": [], "b": [], **values},
+        values={"a": [], "b": [], "games": [{"row": "0", "score": ""}], **values},
         error=error,
     )
 
@@ -323,16 +341,18 @@ def parse_side(ids: list[str], roles: list[str | None], team: str) -> list[Seat]
     return [(to_int(i, "a player id"), role) for i, role in zip(ids, roles, strict=True)]
 
 
-def parse_score(
-    game_type: GameType, winner: str, loser_score: str, score_a: str, score_b: str
-) -> tuple[int, int]:
-    win = game_type.points_to_win
-    if win is None:
-        return to_int(score_a, "Team A's score"), to_int(score_b, "Team B's score")
-    if winner not in ("A", "B"):
-        raise RuleError("pick the team that won")
-    loser = to_int(loser_score, "the loser's score")
-    return (win, loser) if winner == "A" else (loser, win)
+def swap_roles(side: list[Seat]) -> list[Seat]:
+    """The same players with their roles swapped (attacker plays defence and vice versa)."""
+    players, roles = zip(*side, strict=True)
+    return list(zip(players, reversed(roles), strict=True))
+
+
+def parse_score(text: str) -> tuple[int, int]:
+    """ "10-4" (also "10–4", "10:4") → (10, 4), Team A's score first."""
+    match = SCORE.fullmatch(text)
+    if match is None:
+        raise RuleError("write the score as Team A–Team B, e.g. 10-4")
+    return int(match[1]), int(match[2])
 
 
 def parse_time(value: str) -> datetime | None:
@@ -360,46 +380,62 @@ def new_game(
 
 
 @router.post("/games/new", response_class=HTMLResponse)
-def create_game(
+def create_games(
     request: Request,
     session: SessionDep,
     game_type_id: Annotated[int, Form()],
     fmt: Annotated[str, Form(alias="format")] = "",
     a: Annotated[list[str] | None, Form()] = None,  # Team A's player ids, in role order
     b: Annotated[list[str] | None, Form()] = None,
-    winner: Annotated[str, Form()] = "",
-    loser_score: Annotated[str, Form()] = "",
-    score_a: Annotated[str, Form()] = "",  # only for game types without a points target
-    score_b: Annotated[str, Form()] = "",
+    row: Annotated[list[str] | None, Form()] = None,  # one id per game row in the form
+    score: Annotated[list[str] | None, Form()] = None,  # one per row, e.g. "10-4"
+    swap_a: Annotated[list[str] | None, Form()] = None,  # ids of rows where Team A swapped roles
+    swap_b: Annotated[list[str] | None, Form()] = None,
     played_at: Annotated[str, Form()] = "",
     notes: Annotated[str, Form()] = "",
 ) -> Response:
+    """Record one or more games between the same two teams, in the order they were played."""
     game_type = pick_game_type(session, game_type_id)
     formats = team_formats(game_type)
     fmt = fmt if fmt in formats else formats[-1]
+    rows, scores = row or [], score or []
+    swapped_a, swapped_b = set(swap_a or []), set(swap_b or [])
     values = {
         "a": a or [],
         "b": b or [],
-        "winner": winner,
-        "loser_score": loser_score,
-        "score_a": score_a,
-        "score_b": score_b,
+        "games": [
+            {"row": r, "score": s, "swap_a": r in swapped_a, "swap_b": r in swapped_b}
+            for r, s in zip(rows, scores, strict=False)
+        ],
         "played_at": played_at,
         "notes": notes,
     }
     try:
+        if not rows or len(rows) != len(scores):
+            raise RuleError("enter the score of at least one game")
         roles = seat_roles(game_type, fmt)
-        game = record_game(
-            session,
-            game_type,
-            parse_side(a or [], roles, "Team A"),
-            parse_side(b or [], roles, "Team B"),
-            *parse_score(game_type, winner, loser_score, score_a, score_b),
-            played_at=parse_time(played_at),
-            notes=notes.strip(),
-        )
+        side_a = parse_side(a or [], roles, "Team A")
+        side_b = parse_side(b or [], roles, "Team B")
+        when = parse_time(played_at)
+        games = []
+        for n, (row_id, text) in enumerate(zip(rows, scores, strict=True), 1):
+            try:
+                games.append(
+                    record_game(
+                        session,
+                        game_type,
+                        swap_roles(side_a) if row_id in swapped_a else side_a,
+                        swap_roles(side_b) if row_id in swapped_b else side_b,
+                        *parse_score(text),
+                        played_at=when,
+                        notes=notes.strip(),
+                    )
+                )
+            except RuleError as e:
+                raise RuleError(f"Game {n}: {e}" if len(rows) > 1 else str(e)) from e
         session.commit()
     except RuleError as e:
         session.rollback()
         return game_form(request, session, game_type, fmt, values, str(e))
-    return RedirectResponse(f"/?game_type_id={game_type.id}&game={game.id}", status_code=303)
+    ids = "".join(f"&game={g.id}" for g in games)
+    return RedirectResponse(f"/?game_type_id={game_type.id}{ids}", status_code=303)

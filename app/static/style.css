@@ -31,3 +31,9 @@ header nav, header nav ul { flex-wrap: wrap; }
 .board td, .board th { white-space: nowrap; }
 
 .choices label { display: inline-flex; margin-right: 1.25rem; }
+
+.game-row { border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 1rem; }
+.game-row:last-child { border-bottom: 0; }
+.row-options { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; margin-bottom: 1rem; }
+.row-options label { margin: 0; }
+.row-options button { margin: 0 0 0 auto; padding: 0.25rem 0.75rem; width: auto; }

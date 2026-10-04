@@ -4,7 +4,7 @@
 
 {% if result %}
 <article class="notice success">
-  <strong>{{ result.headline }}</strong>
+  {% for line in result.headlines %}<strong>{{ line }}</strong><br>{% endfor %}
   <ul class="changes">
     {% for seat in result.seats %}
     <li>{{ seat.name }}{% if seat.role %} <small>({{ seat.role }})</small>{% endif %}

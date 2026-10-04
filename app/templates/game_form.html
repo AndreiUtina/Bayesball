@@ -1,7 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Record game · Bayesball{% endblock %}
+
+{% macro game_row(row, num, score="", swap_a=False, swap_b=False) %}
+<div class="game-row">
+  <input type="hidden" name="row" value="{{ row }}">
+  <label>
+    Game <span class="game-num">{{ num }}</span> <small class="muted">(Team A–Team B)</small>
+    <input name="score" value="{{ score }}" placeholder="{{ game_type.points_to_win or 10 }}-4"
+           required autocomplete="off" pattern="\s*\d+\s*[\-–—:]\s*\d+\s*"
+           title="Team A's score, a dash, then Team B's score, e.g. 10-4">
+  </label>
+  {% if num != 1 %}
+  <div class="row-options">
+    {% if swappable %}
+    <label><input type="checkbox" name="swap_a" value="{{ row }}" {% if swap_a %}checked{% endif %}> Team A swapped roles</label>
+    <label><input type="checkbox" name="swap_b" value="{{ row }}" {% if swap_b %}checked{% endif %}> Team B swapped roles</label>
+    {% endif %}
+    <button type="button" class="remove-game secondary outline">Remove</button>
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
 {% block content %}
-<h1>Record game</h1>
+<h1>Record games</h1>
 
 {% if error %}<article class="notice error">{{ error }}</article>{% endif %}
 
@@ -44,26 +66,15 @@
     {% endfor %}
   </div>
 
-  {% if game_type.points_to_win %}
-  <fieldset class="choices">
-    <legend>Who won? <small class="muted">(the winner has {{ game_type.points_to_win }})</small></legend>
-    <label><input type="radio" name="winner" value="A" required {% if values.winner == "A" %}checked{% endif %}> Team A</label>
-    <label><input type="radio" name="winner" value="B" {% if values.winner == "B" %}checked{% endif %}> Team B</label>
-  </fieldset>
-  <label>Loser's score
-    <select name="loser_score" required>
-      <option value="">Choose…</option>
-      {% for s in range(game_type.points_to_win) %}
-      <option value="{{ s }}" {% if values.loser_score == s|string %}selected{% endif %}>{{ s }}</option>
+  <fieldset>
+    <legend><strong>Scores</strong> <small class="muted">in the order the games were played</small></legend>
+    <div id="game-rows">
+      {% for g in values.games %}
+      {{ game_row(g.row, loop.index, g.score, g.swap_a, g.swap_b) }}
       {% endfor %}
-    </select>
-  </label>
-  {% else %}
-  <div class="grid">
-    <label>Team A score <input type="number" name="score_a" min="0" required value="{{ values.score_a }}"></label>
-    <label>Team B score <input type="number" name="score_b" min="0" required value="{{ values.score_b }}"></label>
-  </div>
-  {% endif %}
+    </div>
+    <button type="button" id="add-game" class="secondary outline">+ Add another game</button>
+  </fieldset>
 
   <details {% if values.played_at or values.notes %}open{% endif %}>
     <summary>Date and notes</summary>
@@ -75,7 +86,31 @@
     </label>
   </details>
 
-  <button type="submit">Save game</button>
+  <button type="submit">Save</button>
 </form>
+
+<template id="game-row-template">{{ game_row("__ROW__", "__NUM__") }}</template>
+<script>
+  (() => {
+    const rows = document.getElementById("game-rows");
+    const template = document.getElementById("game-row-template").innerHTML;
+    const renumber = () =>
+      rows.querySelectorAll(".game-num").forEach((el, i) => (el.textContent = i + 1));
+
+    document.getElementById("add-game").addEventListener("click", () => {
+      const ids = [...rows.querySelectorAll("[name=row]")].map((el) => Number(el.value));
+      const row = Math.max(-1, ...ids) + 1;
+      rows.insertAdjacentHTML("beforeend", template.replaceAll("__ROW__", row));
+      renumber();
+      rows.lastElementChild.querySelector("[name=score]").focus();
+    });
+    rows.addEventListener("click", (event) => {
+      if (event.target.matches(".remove-game")) {
+        event.target.closest(".game-row").remove();
+        renumber();
+      }
+    });
+  })();
+</script>
 {% endif %}
 {% endblock %}
