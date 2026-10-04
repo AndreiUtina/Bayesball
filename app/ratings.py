@@ -9,7 +9,7 @@ import numpy as np
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
-from app.models import Game, GameParticipant, GameType, Player, PlayerRating
+from app.models import Game, GameParticipant, GameType, Player, PlayerRating, utcnow
 from app.rating.margin import GameSettings, Rating, Seat, prior, update
 
 RANKING_K = 2.0  # the leaderboard sorts by mu − k·sigma
@@ -18,6 +18,10 @@ PROVISIONAL_GAMES = 5  # players with fewer games are labelled provisional
 
 class RuleError(ValueError):
     """A request breaks a game rule. The API returns it as a 422 with this message."""
+
+
+class NameTaken(RuleError):
+    """Two players can't share a name. The API returns it as a 409."""
 
 
 def as_utc(dt: datetime) -> datetime:
@@ -42,6 +46,12 @@ def check_prior(settings: GameSettings, inputs: dict[str, Any]) -> None:
             raise RuleError(f"{key} needs one value per role: {', '.join(roles)}")
     if any(s <= 0 for s in inputs.get("sigma") or ()):
         raise RuleError("sigma values must be positive")
+
+
+def check_name_free(session: Session, name: str, player_id: int | None = None) -> None:
+    existing = session.exec(select(Player).where(Player.name == name)).first()
+    if existing is not None and existing.id != player_id:
+        raise NameTaken(f"a player called {name!r} already exists")
 
 
 def check_players(session: Session, player_ids: Sequence[int]) -> None:
@@ -94,6 +104,53 @@ def check_game(
 ) -> None:
     check_score(game_type, score_a, score_b)
     check_match(session, game_type.settings(), side_a, side_b)
+
+
+# --- Changes (the caller commits) --------------------------------------------------------------
+
+
+def add_player(
+    session: Session,
+    name: str,
+    game_type: GameType | None = None,
+    prior_inputs: dict[str, Any] | None = None,
+) -> Player:
+    """A new player with a rating for every game type; `prior_inputs` apply to `game_type`."""
+    if not name:
+        raise RuleError("the player needs a name")
+    check_name_free(session, name)
+    player = Player(name=name)
+    session.add(player)
+    session.flush()
+    for gt in session.exec(select(GameType)):
+        inputs = prior_inputs if game_type is not None and gt.id == game_type.id else None
+        session.add(new_rating_row(player.id, gt, inputs))
+    return player
+
+
+def record_game(
+    session: Session,
+    game_type: GameType,
+    side_a: Sequence[Seat],
+    side_b: Sequence[Seat],
+    score_a: int,
+    score_b: int,
+    played_at: datetime | None = None,
+    notes: str = "",
+) -> Game:
+    check_game(session, game_type, side_a, side_b, score_a, score_b)
+    game = Game(
+        game_type_id=game_type.id,
+        played_at=as_utc(played_at) if played_at else utcnow(),
+        score_a=score_a,
+        score_b=score_b,
+        outcome=outcome(score_a, score_b),
+        notes=notes,
+        participants=make_participants(side_a, side_b),
+    )
+    session.add(game)
+    recompute(session, game_type)
+    return game
 
 
 # --- Ratings -----------------------------------------------------------------------------------
