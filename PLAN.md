@@ -355,3 +355,10 @@ random race-to-10 games (mostly 2v2 with random roles, some 1v1). Then run the e
 | Admins | The owner (Andrei) invites and removes other admins |
 | Hosting | GitHub → Render (free `*.onrender.com` address) + Neon Postgres |
 | Past games | None to import, so the leaderboard starts from scratch |
+
+
+## 11. Roadmap for improvements.
+
+1. Take into account the number of goals for predictions and ratings.
+
+2. Improve the display panel for players: ex showing the total nb of goals or the total attack vs defense games.
