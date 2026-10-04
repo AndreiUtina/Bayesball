@@ -1,5 +1,9 @@
 # Bayesball
 
+<p align="center">
+  <img src="app/static/logo.jpg" alt="Bayesball logo" width="420">
+</p>
+
 Bayesian ratings and match predictions for foosball (1v1 and 2v2 with attack/defence roles),
 built to support other games too. See [PLAN.md](PLAN.md) for the full design.
 
