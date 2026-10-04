@@ -1,0 +1,8 @@
+"""Settings from environment variables."""
+
+import os
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'bayesball.db'}")
