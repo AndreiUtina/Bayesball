@@ -17,15 +17,18 @@ from app.ratings import (
     PROVISIONAL_GAMES,
     RANKING_K,
     RuleError,
+    add_player,
     as_utc,
     check_game,
     check_match,
+    check_name_free,
     check_players,
     current_ratings,
     make_participants,
     new_rating_row,
     outcome,
     recompute,
+    record_game,
     sides,
     to_rating,
 )
@@ -310,12 +313,6 @@ def update_game_type(game_type_id: int, body: GameTypeUpdate, session: SessionDe
 # --- Players -----------------------------------------------------------------------------------
 
 
-def _check_name_free(session: Session, name: str, player_id: int | None = None) -> None:
-    existing = session.exec(select(Player).where(Player.name == name)).first()
-    if existing is not None and existing.id != player_id:
-        raise HTTPException(409, f"a player called {name!r} already exists")
-
-
 @router.get("/players")
 def list_players(
     session: SessionDep,
@@ -337,20 +334,12 @@ def get_player(player_id: int, session: SessionDep) -> PlayerOut:
 
 @router.post("/players", status_code=201)
 def create_player(body: PlayerCreate, session: SessionDep) -> PlayerOut:
-    _check_name_free(session, body.name)
+    game_type = None
     if body.game_type_id is not None:
-        get_or_404(session, GameType, body.game_type_id)
+        game_type = get_or_404(session, GameType, body.game_type_id)
     elif "prior" in body.model_fields_set:
         raise RuleError("say which game type the prior is for (game_type_id)")
-
-    player = Player(name=body.name)
-    session.add(player)
-    session.flush()
-    for game_type in session.exec(select(GameType)):
-        inputs = (
-            body.prior.model_dump(exclude_none=True) if game_type.id == body.game_type_id else {}
-        )
-        session.add(new_rating_row(player.id, game_type, inputs))
+    player = add_player(session, body.name, game_type, body.prior.model_dump(exclude_none=True))
     session.commit()
     return players_out(session, [player])[0]
 
@@ -359,7 +348,7 @@ def create_player(body: PlayerCreate, session: SessionDep) -> PlayerOut:
 def update_player(player_id: int, body: PlayerUpdate, session: SessionDep) -> PlayerOut:
     player = get_or_404(session, Player, player_id)
     if body.name is not None:
-        _check_name_free(session, body.name, player_id)
+        check_name_free(session, body.name, player_id)
         player.name = body.name
     if body.active is not None:
         player.active = body.active
@@ -413,20 +402,16 @@ def get_game(game_id: int, session: SessionDep) -> GameOut:
 @router.post("/games", status_code=201)
 def create_game(body: GameCreate, session: SessionDep) -> GameOut:
     game_type = get_or_404(session, GameType, body.game_type_id)
-    side_a, side_b = to_seats(body.side_a), to_seats(body.side_b)
-    check_game(session, game_type, side_a, side_b, body.score_a, body.score_b)
-
-    game = Game(
-        game_type_id=game_type.id,
-        played_at=as_utc(body.played_at) if body.played_at else utcnow(),
-        score_a=body.score_a,
-        score_b=body.score_b,
-        outcome=outcome(body.score_a, body.score_b),
-        notes=body.notes,
-        participants=make_participants(side_a, side_b),
+    game = record_game(
+        session,
+        game_type,
+        to_seats(body.side_a),
+        to_seats(body.side_b),
+        body.score_a,
+        body.score_b,
+        body.played_at,
+        body.notes,
     )
-    session.add(game)
-    recompute(session, game_type)
     session.commit()
     return games_out(session, [game])[0]
 
