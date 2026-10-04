@@ -12,6 +12,9 @@ uv sync                                   # install dependencies
 uv run uvicorn app.main:app --reload      # start the site at http://localhost:8000
 ```
 
+The JSON API is documented (and can be tried out) at http://localhost:8000/docs. Locally the
+data lives in `data/bayesball.db`; set `DATABASE_URL` to use another database.
+
 ## Develop
 
 ```sh
