@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import accounts, api, web
+from app import accounts, api, explain, web
 from app.auth import LoginRequired, owner_setup_link
 from app.config import SECRET_KEY, SECURE_COOKIES
 from app.db import engine, init_db
@@ -42,6 +42,7 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 app.include_router(api.router)
 app.include_router(web.router)
 app.include_router(accounts.router)
+app.include_router(explain.router)
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
