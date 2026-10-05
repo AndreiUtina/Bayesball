@@ -60,6 +60,13 @@ async def security(request: Request, call_next) -> Response:
     if request.method in UNSAFE_METHODS and not same_origin(request):
         return PlainTextResponse("Cross-site request blocked.", status_code=403)
     response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        # Fingerprinted addresses (?v=…) change with the file, so they can be kept for a year;
+        # anything else must be checked with the server before reuse.
+        versioned = "v" in request.query_params
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if versioned else "no-cache"
+        )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "same-origin")

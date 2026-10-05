@@ -114,7 +114,7 @@ figcaption { font-size: 0.85em; color: var(--pico-muted-color); margin-top: 0.5r
 .viz svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
 .viz svg:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 4px; border-radius: 4px; }
 .viz .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.viz .area { stroke: none; opacity: 0.12; }
+.viz .area { stroke: none; fill-opacity: 0.12; }
 .viz .curve-before .line { stroke: var(--pico-muted-color); stroke-dasharray: 6 4; }
 .viz .curve-after .line, .viz .curve-b .line { stroke: var(--series-b); }
 .viz .curve-after .area, .viz .curve-b .area { fill: var(--series-b); }

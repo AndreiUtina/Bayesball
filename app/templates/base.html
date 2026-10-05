@@ -7,7 +7,7 @@
   <meta name="robots" content="noindex">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
         integrity="sha384-L1dWfspMTHU/ApYnFiMz2QID/PlP1xCW9visvBdbEkOLkSSWsP6ZJWhPw6apiXxU" crossorigin="anonymous">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="{{ static_url('style.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js" defer
           integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" crossorigin="anonymous"></script>
   {% block head %}{% endblock %}
@@ -15,7 +15,7 @@
 <body>
   <header class="container">
     <nav>
-      <ul><li><a href="/" class="brand"><img src="/static/logo.jpg" alt="" class="logo" width="96" height="64"><strong>Bayesball</strong></a></li></ul>
+      <ul><li><a href="/" class="brand"><img src="{{ static_url('logo.jpg') }}" alt="" class="logo" width="96" height="64"><strong>Bayesball</strong></a></li></ul>
       <ul>
         <li><a href="/" {% if page == "board" %}aria-current="page"{% endif %}>Leaderboard</a></li>
         <li><a href="/predict" {% if page == "predict" %}aria-current="page"{% endif %}>Predict</a></li>

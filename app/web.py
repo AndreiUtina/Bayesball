@@ -1,9 +1,11 @@
 """Website pages (PLAN.md §7). Logins come in Phase 5."""
 
+import hashlib
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import urlencode
@@ -47,6 +49,25 @@ from app.stats import (
 )
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+STATIC = Path(__file__).parent / "static"
+
+
+@cache
+def _fingerprint(file: Path, modified_ns: int) -> str:
+    return hashlib.sha256(file.read_bytes()).hexdigest()[:12]
+
+
+def static_url(path: str) -> str:
+    """A static file's address with a fingerprint of its contents, e.g. /static/style.css?v=1a2b…
+
+    When the file changes, so does the address, so browsers never mix a new page with an old
+    stylesheet they kept from before a deploy.
+    """
+    file = STATIC / path
+    return f"/static/{path}?v={_fingerprint(file, file.stat().st_mtime_ns)}"
+
+
+templates.env.globals["static_url"] = static_url
 
 
 def local_time(dt: datetime) -> str:
