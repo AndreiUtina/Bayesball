@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Admins · Bayesball{% endblock %}
+{% block content %}
+<h1>Admins</h1>
+
+{% if new_link %}
+<article class="notice success">
+  <strong>New invite link</strong> — send it to the person you want to add (for example on WhatsApp).
+  It works once and expires in 7 days. Copy it now: it can't be shown again.
+  <div class="copy-row">
+    <input id="invite-link" value="{{ new_link }}" readonly aria-label="Invite link">
+    <button type="button" class="secondary" onclick="navigator.clipboard.writeText(document.getElementById('invite-link').value); this.textContent = 'Copied'">Copy</button>
+  </div>
+</article>
+{% endif %}
+
+<div class="overflow-auto">
+  <table class="striped">
+    <thead><tr><th>Username</th><th>Role</th><th>Since</th><th></th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr {% if not u.active %}class="muted"{% endif %}>
+        <td>{{ u.username }}</td>
+        <td>{{ u.role if u.active else "removed" }}</td>
+        <td><small>{{ u.created_at|when }}</small></td>
+        <td>
+          {% if u.active and u.role != "owner" %}
+          <form method="post" action="/admin/users/{{ u.id }}/remove" class="inline"
+                onsubmit="return confirm('Remove {{ u.username }}? They will be logged out and can no longer log in.')">
+            <button type="submit" class="secondary outline small">Remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<form method="post" action="/admin/users/invite">
+  <button type="submit">Create invite link</button>
+</form>
+
+{% if pending %}
+<h2>Unused invite links</h2>
+<div class="overflow-auto">
+  <table>
+    <thead><tr><th>Created</th><th>Expires</th><th></th></tr></thead>
+    <tbody>
+      {% for i in pending %}
+      <tr>
+        <td><small>{{ i.created_at|when }}</small></td>
+        <td><small>{{ i.expires_at|when }}</small></td>
+        <td>
+          <form method="post" action="/admin/invites/{{ i.id }}/cancel" class="inline">
+            <button type="submit" class="secondary outline small">Cancel</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p><small class="muted">Cancel a link if it was sent to the wrong person or might have leaked.</small></p>
+{% endif %}
+{% endblock %}

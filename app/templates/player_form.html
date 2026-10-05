@@ -1,17 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Add player · Bayesball{% endblock %}
+{% block title %}{{ "Edit " ~ editing.name if editing else "Add player" }} · Bayesball{% endblock %}
 {% block content %}
-<h1>Add player</h1>
+<h1>{{ "Edit " ~ editing.name if editing else "Add player" }}</h1>
 
 {% if error %}<article class="notice error">{{ error }}</article>{% endif %}
 
-<form method="post" action="/players/new">
+<form method="post" action="{{ '/players/%d/edit' % editing.id if editing else '/players/new' }}">
   <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
 
   <label>
     Name
-    <input name="name" value="{{ values.name or '' }}" required maxlength="50" autocomplete="off" autofocus>
+    <input name="name" value="{{ values.name or '' }}" required maxlength="50" autocomplete="off" {% if not editing %}autofocus{% endif %}>
   </label>
+
+  {% if editing %}
+  <label>
+    <input type="checkbox" name="active" role="switch" {% if values.active %}checked{% endif %}>
+    Active <small class="muted">(inactive players are hidden from the leaderboard and team pickers; their games stay)</small>
+  </label>
+  <p><small class="muted">
+    Changing the starting belief below recalculates this player's ratings from their first game.
+  </small></p>
+  {% endif %}
 
   <fieldset class="choices">
     <legend>Experience at {{ game_type.name|lower }}</legend>
@@ -55,6 +65,6 @@
     {% endfor %}
   </details>
 
-  <button type="submit">Add player</button>
+  <button type="submit">{{ "Save" if editing else "Add player" }}</button>
 </form>
 {% endblock %}

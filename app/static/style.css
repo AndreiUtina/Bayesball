@@ -63,3 +63,14 @@ header nav, header nav ul { flex-wrap: wrap; }
 .history td.won a { font-weight: bold; }
 .filter { max-width: 20rem; }
 .pager { display: flex; justify-content: space-between; }
+
+/* Accounts */
+.narrow { max-width: 28rem; margin-inline: auto; }
+.logout { margin: 0; }
+.logout button { margin: 0; padding: 0.2rem 0.7rem; font-size: 0.9em; }
+form.inline { margin: 0; }
+button.small { margin: 0; padding: 0.2rem 0.7rem; font-size: 0.85em; width: auto; }
+.copy-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.copy-row input { margin: 0; font-family: var(--pico-font-family-monospace); font-size: 0.85em; }
+.copy-row button { margin: 0; width: auto; }
+tr.muted td { color: var(--pico-muted-color); }

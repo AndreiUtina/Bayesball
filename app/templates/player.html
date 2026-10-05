@@ -2,7 +2,10 @@
 {% block title %}{{ player.name }} · Bayesball{% endblock %}
 
 {% block head %}
-{% if chart %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>{% endif %}
+{% if chart %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" defer
+        integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+{% endif %}
 {% endblock %}
 
 {% macro names(seats) %}
@@ -16,6 +19,8 @@
 {% endmacro %}
 
 {% block content %}
+{% if saved %}<article class="notice success">Saved.</article>{% endif %}
+
 <hgroup>
   <h1>{{ player.name }}</h1>
   <p>
@@ -23,6 +28,7 @@
     {% if rank %} · #{{ rank }} of {{ board_size }}{% endif %}
     {% if provisional %} · <span class="badge">provisional</span>{% endif %}
     {% if not player.active %} · inactive{% endif %}
+    {% if user %} · <a href="/players/{{ player.id }}/edit?game_type_id={{ game_type.id }}">Edit player</a>{% endif %}
   </p>
 </hgroup>
 

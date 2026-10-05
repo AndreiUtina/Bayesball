@@ -11,6 +11,9 @@
 {% macro page_link(n) %}/games?game_type_id={{ game_type.id }}{% if player_id %}&player={{ player_id }}{% endif %}&page={{ n }}{% endmacro %}
 
 {% block content %}
+{% if notice == "saved" %}<article class="notice success">Game saved. Ratings were recalculated.</article>{% endif %}
+{% if notice == "deleted" %}<article class="notice success">Game deleted. Ratings were recalculated.</article>{% endif %}
+
 <h1>Game history</h1>
 
 <form method="get" action="/games" class="filter">
@@ -32,7 +35,7 @@
 <div class="overflow-auto">
   <table class="history striped">
     <thead>
-      <tr><th>When</th><th>Team A</th><th>Score</th><th>Team B</th></tr>
+      <tr><th>When</th><th>Team A</th><th>Score</th><th>Team B</th>{% if user %}<th></th>{% endif %}</tr>
     </thead>
     <tbody>
       {% for g in games %}
@@ -41,6 +44,7 @@
         <td {% if g.outcome == "A" %}class="won"{% endif %}>{{ team(g.side_a) }}</td>
         <td><strong>{{ g.score_a }}–{{ g.score_b }}</strong></td>
         <td {% if g.outcome == "B" %}class="won"{% endif %}>{{ team(g.side_b) }}</td>
+        {% if user %}<td><a href="/games/{{ g.id }}/edit">Edit</a></td>{% endif %}
       </tr>
       {% endfor %}
     </tbody>

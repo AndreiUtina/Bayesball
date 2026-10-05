@@ -4,9 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Bayesball{% endblock %}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
+        integrity="sha384-L1dWfspMTHU/ApYnFiMz2QID/PlP1xCW9visvBdbEkOLkSSWsP6ZJWhPw6apiXxU" crossorigin="anonymous">
   <link rel="stylesheet" href="/static/style.css">
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js" defer
+          integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" crossorigin="anonymous"></script>
   {% block head %}{% endblock %}
 </head>
 <body>
@@ -17,8 +20,20 @@
         <li><a href="/" {% if page == "board" %}aria-current="page"{% endif %}>Leaderboard</a></li>
         <li><a href="/predict" {% if page == "predict" %}aria-current="page"{% endif %}>Predict</a></li>
         <li><a href="/games" {% if page == "history" %}aria-current="page"{% endif %}>History</a></li>
+        {% if user %}
         <li><a href="/players/new" {% if page == "player" %}aria-current="page"{% endif %}>Add player</a></li>
         <li><a href="/games/new" {% if page == "game" %}aria-current="page"{% endif %}>Record game</a></li>
+        {% if user.role == "owner" %}
+        <li><a href="/admin/users" {% if page == "users" %}aria-current="page"{% endif %}>Admins</a></li>
+        {% endif %}
+        <li>
+          <form method="post" action="/logout" class="logout">
+            <button type="submit" class="secondary outline" title="Logged in as {{ user.username }}">Log out</button>
+          </form>
+        </li>
+        {% else %}
+        <li><a href="/login" {% if page == "login" %}aria-current="page"{% endif %}>Log in</a></li>
+        {% endif %}
       </ul>
     </nav>
   </header>

@@ -15,9 +15,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, func, select
 
+from app.auth import AdminDep, current_user
 from app.config import TIMEZONE
 from app.db import get_session
-from app.models import Game, GameParticipant, GameType, Player, PlayerRating
+from app.models import Game, GameParticipant, GameType, Player, PlayerRating, User
 from app.rating.margin import Seat, role_weights
 from app.rating.predict import Prediction, arrangements, balance, predict, role_options
 from app.ratings import (
@@ -28,8 +29,12 @@ from app.ratings import (
     check_match,
     check_players,
     current_ratings,
+    delete_game,
     record_game,
+    sides,
     to_rating,
+    update_game,
+    update_player,
 )
 from app.stats import (
     GameView,
@@ -65,8 +70,12 @@ def render(
     request: Request, session: Session, template: str, status: int = 200, **context: Any
 ) -> HTMLResponse:
     game_types = session.exec(select(GameType).order_by(col(GameType.id))).all()
+    user = current_user(request, session)
     return templates.TemplateResponse(
-        request, template, {"game_types": game_types, **context}, status_code=status
+        request,
+        template,
+        {"game_types": game_types, "user": user, **context},
+        status_code=status,
     )
 
 
@@ -249,6 +258,7 @@ def player_form(
     game_type: GameType,
     values: dict[str, Any],
     error: str | None = None,
+    editing: Player | None = None,
 ) -> HTMLResponse:
     n = len(game_type.roles)
     values = {"level": "0", "stronger": "", "certainty": "low", **values}
@@ -264,6 +274,7 @@ def player_form(
         values=values,
         error=error,
         experience=EXPERIENCE,
+        editing=editing,
     )
 
 
@@ -290,7 +301,9 @@ def parse_prior(
 
 
 @router.get("/players/new", response_class=HTMLResponse)
-def new_player(request: Request, session: SessionDep, game_type_id: int | None = None):
+def new_player(
+    request: Request, session: SessionDep, user: AdminDep, game_type_id: int | None = None
+):
     return player_form(request, session, pick_game_type(session, game_type_id), {})
 
 
@@ -298,6 +311,7 @@ def new_player(request: Request, session: SessionDep, game_type_id: int | None =
 def create_player(
     request: Request,
     session: SessionDep,
+    user: AdminDep,
     game_type_id: Annotated[int, Form()],
     name: Annotated[str, Form()] = "",
     level: Annotated[str, Form()] = "0",
@@ -317,7 +331,7 @@ def create_player(
     }
     try:
         inputs = parse_prior(level, stronger, certainty, mu or [], sigma or [])
-        player = add_player(session, name.strip(), game_type, inputs)
+        player = add_player(session, name.strip(), game_type, inputs, user_id=user.id)
         session.commit()
     except RuleError as e:
         session.rollback()
@@ -420,6 +434,7 @@ def parse_time(value: str) -> datetime | None:
 def new_game(
     request: Request,
     session: SessionDep,
+    user: AdminDep,
     game_type_id: int | None = None,
     fmt: Annotated[str | None, Query(alias="format")] = None,
     a: Annotated[list[str] | None, Query()] = None,  # prefill teams, e.g. from /predict
@@ -434,6 +449,7 @@ def new_game(
 def create_games(
     request: Request,
     session: SessionDep,
+    user: AdminDep,
     game_type_id: Annotated[int, Form()],
     fmt: Annotated[str, Form(alias="format")] = "",
     a: Annotated[list[str] | None, Form()] = None,  # Team A's player ids, in role order
@@ -479,6 +495,7 @@ def create_games(
                         *parse_score(text),
                         played_at=when,
                         notes=notes.strip(),
+                        user_id=user.id,
                     )
                 )
             except RuleError as e:
@@ -679,7 +696,11 @@ RECENT_GAMES = 10
 
 @router.get("/players/{player_id:int}", response_class=HTMLResponse)
 def player_page(
-    request: Request, session: SessionDep, player_id: int, game_type_id: int | None = None
+    request: Request,
+    session: SessionDep,
+    player_id: int,
+    game_type_id: int | None = None,
+    saved: bool = False,  # show "saved" (after editing the player)
 ) -> HTMLResponse:
     game_type = pick_game_type(session, game_type_id)
     player = session.get(Player, player_id)
@@ -725,6 +746,7 @@ def player_page(
         more_games=len(views) > RECENT_GAMES,
         teammates=teammates,
         opponents=opponents,
+        saved=saved,
     )
 
 
@@ -740,6 +762,7 @@ def history_page(
     game_type_id: int | None = None,
     player: str = "",  # a player id, or empty for everyone
     page: Annotated[int, Query(ge=1)] = 1,
+    notice: str = "",  # "saved" or "deleted" after editing a game
 ) -> HTMLResponse:
     game_type = pick_game_type(session, game_type_id)
     player_id = int(player) if player.isdigit() else None
@@ -762,4 +785,228 @@ def history_page(
         page_num=page,
         has_newer=page > 1,
         has_older=page * GAMES_PER_PAGE < total,
+        notice=notice,
     )
+
+
+# --- Edit players (admins) ---------------------------------------------------------------------
+
+
+def prior_values(inputs: dict[str, Any], n_roles: int) -> dict[str, Any]:
+    """The form answers that give these stored prior inputs (the reverse of parse_prior)."""
+    level = float(inputs.get("level", 0.0))
+    shown_level = str(int(level)) if level.is_integer() else "0"
+    factor = inputs.get("sigma_factor", 1.0)
+    return {
+        "level": shown_level if shown_level in dict(EXPERIENCE) else "0",
+        "stronger": inputs.get("stronger") or "",
+        "certainty": next((k for k, v in CERTAINTY.items() if v == factor), "low"),
+        "mu": [str(v) for v in inputs.get("mu") or []] or [""] * n_roles,
+        "sigma": [str(v) for v in inputs.get("sigma") or []] or [""] * n_roles,
+    }
+
+
+def player_and_rating(
+    session: Session, player_id: int, game_type: GameType
+) -> tuple[Player, PlayerRating]:
+    player = session.get(Player, player_id)
+    row = session.exec(
+        select(PlayerRating).where(
+            PlayerRating.player_id == player_id, PlayerRating.game_type_id == game_type.id
+        )
+    ).first()
+    if player is None or row is None:
+        raise HTTPException(404, "player not found")
+    return player, row
+
+
+@router.get("/players/{player_id:int}/edit", response_class=HTMLResponse)
+def edit_player(
+    request: Request,
+    session: SessionDep,
+    user: AdminDep,
+    player_id: int,
+    game_type_id: int | None = None,
+) -> HTMLResponse:
+    game_type = pick_game_type(session, game_type_id)
+    player, row = player_and_rating(session, player_id, game_type)
+    values = {
+        "name": player.name,
+        "active": player.active,
+        **prior_values(row.prior, len(game_type.roles)),
+    }
+    return player_form(request, session, game_type, values, editing=player)
+
+
+@router.post("/players/{player_id:int}/edit", response_class=HTMLResponse)
+def save_player(
+    request: Request,
+    session: SessionDep,
+    user: AdminDep,
+    player_id: int,
+    game_type_id: Annotated[int, Form()],
+    name: Annotated[str, Form()] = "",
+    active: Annotated[str, Form()] = "",  # "on" when ticked
+    level: Annotated[str, Form()] = "0",
+    stronger: Annotated[str, Form()] = "",
+    certainty: Annotated[str, Form()] = "low",
+    mu: Annotated[list[str] | None, Form()] = None,
+    sigma: Annotated[list[str] | None, Form()] = None,
+) -> Response:
+    game_type = pick_game_type(session, game_type_id)
+    player, row = player_and_rating(session, player_id, game_type)
+    values = {
+        "name": name,
+        "active": bool(active),
+        "level": level,
+        "stronger": stronger,
+        "certainty": certainty,
+        "mu": mu,
+        "sigma": sigma,
+    }
+    try:
+        inputs = parse_prior(level, stronger, certainty, mu or [], sigma or [])
+        shown = prior_values(row.prior, len(game_type.roles))
+        unchanged = parse_prior(
+            shown["level"], shown["stronger"], shown["certainty"], shown["mu"], shown["sigma"]
+        )
+        update_player(
+            session,
+            player,
+            name=name.strip(),
+            active=bool(active),
+            game_type=game_type,
+            # Only a changed prior replaces the stored one (and replays the history).
+            prior_inputs=None if inputs == unchanged else inputs,
+            user_id=user.id,
+        )
+        session.commit()
+    except RuleError as e:
+        session.rollback()
+        return player_form(request, session, game_type, values, str(e), editing=player)
+    return RedirectResponse(
+        f"/players/{player_id}?game_type_id={game_type.id}&saved=true", status_code=303
+    )
+
+
+# --- Edit and delete games (admins) ------------------------------------------------------------
+
+
+def game_and_type(session: Session, game_id: int) -> tuple[Game, GameType]:
+    game = session.get(Game, game_id)
+    if game is None:
+        raise HTTPException(404, "game not found")
+    return game, pick_game_type(session, game.game_type_id)
+
+
+def form_time(dt: datetime) -> str:
+    """A stored time as a datetime-local form value, in the TIMEZONE setting."""
+    return (
+        (dt if dt.tzinfo else dt.replace(tzinfo=UTC))
+        .astimezone(ZoneInfo(TIMEZONE))
+        .strftime("%Y-%m-%dT%H:%M")
+    )
+
+
+def game_values(game: Game, game_type: GameType) -> dict[str, Any]:
+    """The edit form's fields for a recorded game; team seats in role order."""
+    side_a, side_b = sides(game)
+    fmt = "1v1" if len(side_a) == 1 else team_formats(game_type)[-1]
+    roles = seat_roles(game_type, fmt)
+
+    def ids(side: list[Seat]) -> list[str]:
+        by_role = {role: player for player, role in side}
+        return [str(by_role[role]) for role in roles]
+
+    return {
+        "format": fmt,
+        "a": ids(side_a),
+        "b": ids(side_b),
+        "score": f"{game.score_a}-{game.score_b}",
+        "played_at": form_time(game.played_at),
+        "notes": game.notes,
+    }
+
+
+def game_edit_form(
+    request: Request,
+    session: Session,
+    game: Game,
+    game_type: GameType,
+    values: dict[str, Any],
+    error: str | None = None,
+) -> HTMLResponse:
+    in_game = {p.player_id for p in game.participants}
+    players = session.exec(
+        select(Player)
+        .where(col(Player.active).is_(True) | col(Player.id).in_(in_game))
+        .order_by(col(Player.name))
+    ).all()
+    usernames = dict(session.exec(select(User.id, User.username)).all())
+    return render(
+        request,
+        session,
+        "game_edit.html",
+        status=422 if error else 200,
+        page="history",
+        game=game,
+        game_type=game_type,
+        seat_roles=seat_roles(game_type, values["format"]),
+        players=players,
+        values=values,
+        created_by=usernames.get(game.created_by),
+        updated_by=usernames.get(game.updated_by),
+        error=error,
+    )
+
+
+@router.get("/games/{game_id:int}/edit", response_class=HTMLResponse)
+def edit_game(request: Request, session: SessionDep, user: AdminDep, game_id: int):
+    game, game_type = game_and_type(session, game_id)
+    return game_edit_form(request, session, game, game_type, game_values(game, game_type))
+
+
+@router.post("/games/{game_id:int}/edit", response_class=HTMLResponse)
+def save_game(
+    request: Request,
+    session: SessionDep,
+    user: AdminDep,
+    game_id: int,
+    a: Annotated[list[str] | None, Form()] = None,
+    b: Annotated[list[str] | None, Form()] = None,
+    score: Annotated[str, Form()] = "",
+    played_at: Annotated[str, Form()] = "",
+    notes: Annotated[str, Form()] = "",
+) -> Response:
+    game, game_type = game_and_type(session, game_id)
+    shown = game_values(game, game_type)
+    roles = seat_roles(game_type, shown["format"])
+    values = {**shown, "a": a or [], "b": b or [], "score": score, "played_at": played_at}
+    values["notes"] = notes
+    try:
+        update_game(
+            session,
+            game_type,
+            game,
+            parse_side(a or [], roles, "Team A"),
+            parse_side(b or [], roles, "Team B"),
+            *parse_score(score),
+            # The form shows minutes only, so an untouched time keeps its exact stored value
+            # (and the game keeps its place among games played in the same minute).
+            played_at=None if played_at == shown["played_at"] else parse_time(played_at),
+            notes=notes.strip(),
+            user_id=user.id,
+        )
+        session.commit()
+    except RuleError as e:
+        session.rollback()
+        return game_edit_form(request, session, game, game_type, values, str(e))
+    return RedirectResponse(f"/games?game_type_id={game_type.id}&notice=saved", status_code=303)
+
+
+@router.post("/games/{game_id:int}/delete")
+def remove_game(request: Request, session: SessionDep, user: AdminDep, game_id: int) -> Response:
+    game, game_type = game_and_type(session, game_id)
+    delete_game(session, game_type, game)
+    session.commit()
+    return RedirectResponse(f"/games?game_type_id={game_type.id}&notice=deleted", status_code=303)

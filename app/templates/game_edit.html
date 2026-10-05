@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_teams.html" import team_picker %}
+{% block title %}Edit game · Bayesball{% endblock %}
+{% block content %}
+<h1>Edit game</h1>
+<p><small class="muted">
+  {{ values.format }} · played {{ game.played_at|when }}
+  {% if created_by %} · recorded by {{ created_by }}{% endif %}
+  {% if updated_by and game.updated_at != game.created_at %} · last edited by {{ updated_by }} ({{ game.updated_at|when }}){% endif %}
+</small></p>
+
+{% if error %}<article class="notice error">{{ error }}</article>{% endif %}
+
+<form method="post" action="/games/{{ game.id }}/edit">
+  {{ team_picker(players, seat_roles, values) }}
+
+  <label>Score <small class="muted">(Team A–Team B)</small>
+    <input name="score" value="{{ values.score }}" required autocomplete="off"
+           pattern="\s*\d+\s*[\-–—:]\s*\d+\s*" title="Team A's score, a dash, then Team B's score, e.g. 10-4">
+  </label>
+  <label>Played at
+    <input type="datetime-local" name="played_at" value="{{ values.played_at }}">
+  </label>
+  <label>Notes
+    <input name="notes" maxlength="200" value="{{ values.notes }}">
+  </label>
+  <p><small class="muted">Saving recalculates every rating from this game onwards.</small></p>
+  <button type="submit">Save</button>
+</form>
+
+<form method="post" action="/games/{{ game.id }}/delete"
+      onsubmit="return confirm('Delete this game? Ratings will be recalculated without it.')">
+  <button type="submit" class="secondary outline">Delete game</button>
+</form>
+{% endblock %}
