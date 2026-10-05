@@ -71,7 +71,7 @@ def test_record_2v2_game_changes_the_ranking(client, four):
     assert response.status_code == 303, response.text
     page = client.get(response.headers["location"]).text
     assert "ann &amp; bob beat cat &amp; dan 10–6" in page
-    assert page.index("<td>ann") < page.index("<td>cat")
+    assert page.index(">ann</a>") < page.index(">cat</a>")
     assert "▲" in page and "▼" in page
 
 
@@ -152,3 +152,90 @@ def test_role_tabs(client, four):
     page = client.get("/?tab=attack").text
     assert 'tab=attack" aria-current="page"' in page
     assert client.get("/?tab=nonsense").status_code == 200
+
+
+# --- Phase 4: predict, balance, profile, history -----------------------------------------------
+
+
+def test_predict_form(client, four):
+    page = client.get("/predict").text
+    assert page.count('<select name="a"') == 2
+    assert "Expected score" not in page
+
+
+def test_predict_shows_probabilities_and_roles(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-2"))
+    response = client.get("/predict?format=2v2&a=1&a=2&b=3&b=4")
+    assert response.status_code == 200
+    page = response.text
+    assert "Expected score" in page and "<strong>ann &amp; bob 10 –" in page
+    assert "Who plays where?" in page
+    assert page.count("<td ") + page.count("<td>") >= 4  # 2×2 role grid
+    assert 'class="current"' in page
+    assert "/games/new?game_type_id=1&amp;format=2v2&amp;a=1&amp;a=2&amp;b=3&amp;b=4" in page
+    assert '<option value="1" selected>' in page  # the form keeps the teams
+
+
+def test_predict_errors(client, four):
+    response = client.get("/predict?format=2v2&a=1&a=1&b=3&b=4")
+    assert response.status_code == 422
+    assert "only one seat" in response.text
+
+
+def test_predict_1v1_has_no_role_grid(client, four):
+    page = client.get("/predict?format=1v1&a=1&b=2").text
+    assert "Expected score" in page
+    assert "Who plays where?" not in page
+
+
+def test_record_form_can_be_prefilled(client, four):
+    page = client.get("/games/new?format=2v2&a=2&a=1&b=4&b=3").text
+    assert '<option value="2" selected>' in page and '<option value="3" selected>' in page
+
+
+def test_balance(client, four):
+    page = client.get("/balance?p=1&p=2&p=3&p=4").text
+    assert page.count(">Details</a>") == 12
+    assert 'class="best"' in page
+
+    response = client.get("/balance?p=1&p=2&p=3")
+    assert response.status_code == 422
+    assert "pick 2 or 4 players" in response.text
+
+
+def test_player_profile(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4", "8-10"))
+    page = client.get("/players/1").text
+    assert "<h1>ann</h1>" in page
+    assert "#" in page and "of 4" in page
+    assert 'id="rating-chart"' in page and '"labels": ["Start", "1", "2"]' in page
+    assert "Teammates" in page and ">bob</a>" in page
+    assert page.count("result-W") == 1 and page.count("result-L") == 1
+
+    assert "No games yet" in client.get(f"/players/{add_player_id(client, 'eve')}").text
+    assert client.get("/players/999").status_code == 404
+
+
+def add_player_id(client, name):
+    return int(add_player(client, name).split("added=")[1])
+
+
+def test_history(client, four, monkeypatch):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4"))
+    client.post("/games/new", data=game_form(["1"], ["2"], "3-10"))
+    page = client.get("/games").text
+    assert page.index("3–10") < page.index("10–4")  # newest first
+    assert "Games 1–2 of 2" in page
+
+    only_cat = client.get("/games?player=3").text
+    assert "10–4" in only_cat and "3–10" not in only_cat
+
+    monkeypatch.setattr("app.web.GAMES_PER_PAGE", 1)
+    first = client.get("/games").text
+    assert "Older →" in first and "← Newer" not in first
+    second = client.get("/games?page=2").text
+    assert "10–4" in second and "← Newer" in second
+
+
+def test_leaderboard_links_to_profiles(client, four):
+    assert 'href="/players/1?game_type_id=1">ann</a>' in client.get("/").text

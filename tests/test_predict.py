@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from app.rating.margin import FOOSBALL, prior
-from app.rating.predict import balance, expected_score, predict
+from app.rating.predict import arrangements, balance, expected_score, predict, role_options
 
 S = FOOSBALL
 
@@ -58,3 +58,22 @@ def test_balance_four_players():
     # The two strongest players should not end up together in the fairest matchup.
     best = {p for p, _ in options[0].side_a}
     assert best != {"ace", "wall"} and best != {"newbie", "avg"}
+
+
+def test_role_options_for_fixed_teams():
+    ratings = {
+        "striker": prior(S, stronger="attack"),
+        "keeper": prior(S, stronger="defence"),
+        "c": prior(S),
+        "d": prior(S),
+    }
+    wrong_way = [("striker", "defence"), ("keeper", "attack")]
+    assert arrangements(wrong_way) == [
+        (("striker", "defence"), ("keeper", "attack")),
+        (("striker", "attack"), ("keeper", "defence")),
+    ]
+    assert arrangements([("c", None)]) == [(("c", None),)]
+
+    grid = role_options(S, ratings, wrong_way, [("c", "attack"), ("d", "defence")])
+    assert len(grid) == 2 and len(grid[0]) == 2
+    assert grid[1][0].p_a > 0.5 > grid[0][0].p_a  # swapping puts both in their strong role
