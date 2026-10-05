@@ -74,3 +74,8 @@ First-time setup:
 
 To try the online database from your laptop, put `DATABASE_URL=…` in `.env` (never committed)
 and run `uv run --env-file .env uvicorn app.main:app`.
+
+## License
+
+[MIT](LICENSE). The logo was made with Google's AI image generator, after the well-known
+portrait of Thomas Bayes.

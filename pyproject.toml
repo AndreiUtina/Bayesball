@@ -3,6 +3,8 @@ name = "bayesball"
 version = "0.1.0"
 description = "Bayesian rating and match prediction for foosball (and other games)"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "alembic>=1.20.0",
     "argon2-cffi>=25.1.0",
