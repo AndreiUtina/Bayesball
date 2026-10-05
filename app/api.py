@@ -1,4 +1,4 @@
-"""JSON API (PLAN.md §7). No logins yet: writes are open until Phase 5 adds admins."""
+"""JSON API (PLAN.md §7). Anyone can read; writes need a logged-in admin (the session cookie)."""
 
 from collections import defaultdict
 from collections.abc import Sequence
@@ -9,8 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, SQLModel, col, select
 
+from app.auth import AdminDep, OwnerDep
 from app.db import get_session
-from app.models import Game, GameParticipant, GameType, Player, PlayerRating, utcnow
+from app.models import Game, GameParticipant, GameType, Player, PlayerRating
 from app.rating.margin import Seat
 from app.rating.predict import Prediction, balance, predict
 from app.ratings import (
@@ -18,19 +19,16 @@ from app.ratings import (
     RANKING_K,
     RuleError,
     add_player,
-    as_utc,
-    check_game,
     check_match,
-    check_name_free,
     check_players,
     current_ratings,
-    make_participants,
-    new_rating_row,
-    outcome,
+    delete_game,
     recompute,
     record_game,
     sides,
     to_rating,
+    update_game,
+    update_player,
 )
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -291,7 +289,9 @@ def list_game_types(session: SessionDep) -> list[GameType]:
 
 
 @router.patch("/game-types/{game_type_id}")
-def update_game_type(game_type_id: int, body: GameTypeUpdate, session: SessionDep) -> GameType:
+def update_game_type(
+    game_type_id: int, body: GameTypeUpdate, session: SessionDep, owner: OwnerDep
+) -> GameType:
     game_type = get_or_404(session, GameType, game_type_id)
     changes = body.model_dump(exclude_unset=True, exclude_none=True)
     if (
@@ -333,43 +333,35 @@ def get_player(player_id: int, session: SessionDep) -> PlayerOut:
 
 
 @router.post("/players", status_code=201)
-def create_player(body: PlayerCreate, session: SessionDep) -> PlayerOut:
+def create_player(body: PlayerCreate, session: SessionDep, user: AdminDep) -> PlayerOut:
     game_type = None
     if body.game_type_id is not None:
         game_type = get_or_404(session, GameType, body.game_type_id)
     elif "prior" in body.model_fields_set:
         raise RuleError("say which game type the prior is for (game_type_id)")
-    player = add_player(session, body.name, game_type, body.prior.model_dump(exclude_none=True))
+    prior = body.prior.model_dump(exclude_none=True)
+    player = add_player(session, body.name, game_type, prior, user_id=user.id)
     session.commit()
     return players_out(session, [player])[0]
 
 
 @router.patch("/players/{player_id}")
-def update_player(player_id: int, body: PlayerUpdate, session: SessionDep) -> PlayerOut:
+def patch_player(
+    player_id: int, body: PlayerUpdate, session: SessionDep, user: AdminDep
+) -> PlayerOut:
     player = get_or_404(session, Player, player_id)
-    if body.name is not None:
-        check_name_free(session, body.name, player_id)
-        player.name = body.name
-    if body.active is not None:
-        player.active = body.active
-    session.add(player)
-
-    if body.prior is not None:
-        if body.game_type_id is None:
-            raise RuleError("say which game type the prior is for (game_type_id)")
+    game_type = None
+    if body.game_type_id is not None:
         game_type = get_or_404(session, GameType, body.game_type_id)
-        row = session.exec(
-            select(PlayerRating).where(
-                PlayerRating.player_id == player_id, PlayerRating.game_type_id == game_type.id
-            )
-        ).first()
-        new_row = new_rating_row(player_id, game_type, body.prior.model_dump(exclude_none=True))
-        if row is None:
-            session.add(new_row)
-        else:
-            row.prior = new_row.prior
-            session.add(row)
-        recompute(session, game_type)
+    update_player(
+        session,
+        player,
+        name=body.name,
+        active=body.active,
+        game_type=game_type,
+        prior_inputs=body.prior.model_dump(exclude_none=True) if body.prior else None,
+        user_id=user.id,
+    )
     session.commit()
     return players_out(session, [player])[0]
 
@@ -400,7 +392,7 @@ def get_game(game_id: int, session: SessionDep) -> GameOut:
 
 
 @router.post("/games", status_code=201)
-def create_game(body: GameCreate, session: SessionDep) -> GameOut:
+def create_game(body: GameCreate, session: SessionDep, user: AdminDep) -> GameOut:
     game_type = get_or_404(session, GameType, body.game_type_id)
     game = record_game(
         session,
@@ -411,43 +403,37 @@ def create_game(body: GameCreate, session: SessionDep) -> GameOut:
         body.score_b,
         body.played_at,
         body.notes,
+        user_id=user.id,
     )
     session.commit()
     return games_out(session, [game])[0]
 
 
 @router.patch("/games/{game_id}")
-def update_game(game_id: int, body: GameUpdate, session: SessionDep) -> GameOut:
+def patch_game(game_id: int, body: GameUpdate, session: SessionDep, user: AdminDep) -> GameOut:
     game = get_or_404(session, Game, game_id)
     game_type = get_or_404(session, GameType, game.game_type_id)
     old_a, old_b = sides(game)
-    side_a = to_seats(body.side_a) if body.side_a is not None else old_a
-    side_b = to_seats(body.side_b) if body.side_b is not None else old_b
-    score_a = body.score_a if body.score_a is not None else game.score_a
-    score_b = body.score_b if body.score_b is not None else game.score_b
-    check_game(session, game_type, side_a, side_b, score_a, score_b)
-
-    if body.side_a is not None or body.side_b is not None:
-        game.participants = make_participants(side_a, side_b)
-    game.score_a, game.score_b, game.outcome = score_a, score_b, outcome(score_a, score_b)
-    if body.played_at is not None:
-        game.played_at = as_utc(body.played_at)
-    if body.notes is not None:
-        game.notes = body.notes
-    game.updated_at = utcnow()
-    session.add(game)
-    recompute(session, game_type)
+    update_game(
+        session,
+        game_type,
+        game,
+        to_seats(body.side_a) if body.side_a is not None else old_a,
+        to_seats(body.side_b) if body.side_b is not None else old_b,
+        body.score_a if body.score_a is not None else game.score_a,
+        body.score_b if body.score_b is not None else game.score_b,
+        body.played_at,
+        body.notes,
+        user_id=user.id,
+    )
     session.commit()
     return games_out(session, [game])[0]
 
 
 @router.delete("/games/{game_id}", status_code=204)
-def delete_game(game_id: int, session: SessionDep) -> None:
+def remove_game(game_id: int, session: SessionDep, user: AdminDep) -> None:
     game = get_or_404(session, Game, game_id)
-    game_type = get_or_404(session, GameType, game.game_type_id)
-    session.delete(game)
-    session.flush()
-    recompute(session, game_type)
+    delete_game(session, get_or_404(session, GameType, game.game_type_id), game)
     session.commit()
 
 
@@ -487,7 +473,7 @@ def balance_teams(body: BalanceIn, session: SessionDep) -> list[MatchupOut]:
 
 
 @router.post("/recompute")
-def recompute_ratings(body: RecomputeIn, session: SessionDep) -> dict[str, int]:
+def recompute_ratings(body: RecomputeIn, session: SessionDep, owner: OwnerDep) -> dict[str, int]:
     game_type = get_or_404(session, GameType, body.game_type_id)
     games = recompute(session, game_type)
     session.commit()
