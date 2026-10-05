@@ -194,7 +194,7 @@ by picking the values that best predict the games so far (empirical Bayes / maxi
 | Domain | Render subdomain | free | A custom `.com` costs ~€10/year and can be added later without code changes. |
 
 The settings live in a `render.yaml` file in the repo ("infrastructure as code"). The secrets
-(`DATABASE_URL`, `SECRET_KEY`, `OWNER_EMAIL`) are entered once in the Render dashboard and never committed.
+(`DATABASE_URL`, `SECRET_KEY`) are entered once in the Render dashboard and never committed.
 
 If the ~1 min wake-up becomes annoying, we can upgrade to Render's cheapest paid instance,
 or move to another host. The app is a plain Docker container, so moving is easy.
@@ -209,7 +209,7 @@ or move to another host. The app is a plain Docker container, so moving is easy.
 | **Admin** | Everything a visitor can, plus add/edit players, record/edit/delete games, import CSV. |
 | **Owner** (you) | Everything an admin can, plus **invite and remove admins**, change game-type settings, recompute ratings, transfer ownership. |
 
-- **First start**: the owner account is created from the `OWNER_EMAIL` setting, with a one-time setup link.
+- **First start**: while there is no owner, the app writes a one-time setup link to the server log (valid for 1 day); opening it creates the owner account.
 - **Inviting an admin**: the owner creates an **invite link** (valid for 7 days, single use) and sends it, e.g. via WhatsApp. The person opens it and picks a username and password. No email server is needed.
 - **Removing an admin**: one click on `/admin/users`; their sessions end immediately.
 - **Audit trail**: every game and player stores who created and last edited it, so mistakes can be traced and fixed.
@@ -301,7 +301,7 @@ Bayesball/
 ├── .github/workflows/ci.yml     # tests + lint on every push
 ├── app/
 │   ├── main.py                  # FastAPI app & routes
-│   ├── config.py                # env settings (DATABASE_URL, SECRET_KEY, OWNER_EMAIL)
+│   ├── config.py                # env settings (DATABASE_URL, SECRET_KEY, ...)
 │   ├── db.py                    # engine / session
 │   ├── models.py                # SQLModel tables
 │   ├── auth.py                  # login, roles, invites
