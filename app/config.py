@@ -5,7 +5,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{ROOT / 'data' / 'bayesball.db'}")
+
+def database_url(url: str) -> str:
+    """Neon (and others) hand out postgres:// addresses; SQLAlchemy also needs the driver name."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url.removeprefix(prefix)
+    return url
+
+
+DATABASE_URL = database_url(
+    os.environ.get("DATABASE_URL") or f"sqlite:///{ROOT / 'data' / 'bayesball.db'}"
+)
 
 # Times typed into the web forms are in this timezone (e.g. "Europe/Amsterdam").
 TIMEZONE = os.environ.get("TIMEZONE", "UTC")

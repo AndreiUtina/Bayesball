@@ -8,6 +8,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres: # the same kind of database the site uses online (Neon)
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bayesball_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.2.0
@@ -16,4 +25,24 @@ jobs:
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run pytest
+      - name: Tests (SQLite)
+        run: uv run pytest
+      - name: Tests (Postgres)
+        run: uv run pytest
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bayesball_test
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t bayesball .
+      - name: Start the image and check that it answers
+        run: |
+          docker run -d --name app -p 8000:8000 -e DATABASE_URL=sqlite:////tmp/smoke.db bayesball
+          for i in $(seq 30); do
+            if curl -sf localhost:8000/health; then docker logs app; exit 0; fi
+            sleep 1
+          done
+          docker logs app
+          exit 1
