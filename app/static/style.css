@@ -1,5 +1,14 @@
 /* Small additions on top of Pico CSS. */
 
+/* Chart colours: Team A / attack (orange) and Team B / defence (blue). Each mode has its own
+   steps, checked for colour-blind separation and contrast against Pico's light and dark
+   backgrounds. */
+:root { --series-a: #eb6834; --series-b: #2a78d6; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --series-a: #d95926; --series-b: #3987e5; }
+}
+:root[data-theme="dark"] { --series-a: #d95926; --series-b: #3987e5; }
+
 header nav, header nav ul { flex-wrap: wrap; }
 @media (max-width: 576px) {
   header nav { flex-direction: column; align-items: flex-start; }
@@ -42,8 +51,8 @@ header nav, header nav ul { flex-wrap: wrap; }
 /* Predict and balance */
 .prob-labels { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.4rem; }
 .prob-bar { display: flex; height: 1.25rem; border-radius: 0.4rem; overflow: hidden; margin-bottom: 1rem; }
-.prob-bar .side-a { background: #e8743b; }
-.prob-bar .side-b { background: #3b8beb; }
+.prob-bar .side-a { background: var(--series-a); }
+.prob-bar .side-b { background: var(--series-b); }
 .prob-bar .draw { background: var(--pico-muted-border-color); }
 .role-grid th, .role-grid td { text-align: center; vertical-align: middle; }
 .role-grid tbody th, .role-grid thead th:first-child { text-align: left; }
@@ -74,3 +83,58 @@ button.small { margin: 0; padding: 0.2rem 0.7rem; font-size: 0.85em; width: auto
 .copy-row input { margin: 0; font-family: var(--pico-font-family-monospace); font-size: 0.85em; }
 .copy-row button { margin: 0; width: auto; }
 tr.muted td { color: var(--pico-muted-color); }
+
+/* How it works */
+.toc ol { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0; padding: 0; font-size: 0.9em; }
+.toc li, .toc a { margin: 0; padding: 0.1rem 0; }
+section { margin-top: 2.5rem; }
+.formula {
+  padding: 0.75rem 1rem; margin: 1rem 0; text-align: center; font-size: 1.05em;
+  background: var(--pico-card-background-color); border-radius: var(--pico-border-radius);
+}
+.formula.bayes { display: flex; justify-content: center; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.frac { display: inline-flex; flex-direction: column; text-align: center; }
+.frac > span:first-child { border-bottom: 1px solid currentColor; padding: 0 0.3rem 0.15rem; }
+.frac > span:last-child { padding-top: 0.15rem; }
+table.maths td:last-child { font-family: var(--pico-font-family-monospace); white-space: nowrap; }
+
+figure { margin: 1.5rem 0; }
+figcaption { font-size: 0.85em; color: var(--pico-muted-color); margin-top: 0.5rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; font-size: 0.85em; margin-bottom: 0.25rem; }
+.key { display: inline-block; width: 18px; vertical-align: middle; margin-right: 0.4rem; border-top: 2px solid; }
+.key-before { border-top: 2px dashed var(--pico-muted-color); }
+.key-after, .key-b { border-color: var(--series-b); }
+.key-a { border-color: var(--series-a); }
+.key.area-key { height: 10px; }
+.key-a.area-key { background: color-mix(in srgb, var(--series-a) 25%, transparent); }
+.key-b.area-key { background: color-mix(in srgb, var(--series-b) 25%, transparent); }
+.key-marker { border-top: 2px dotted var(--pico-muted-color); }
+
+.viz { position: relative; max-width: 560px; }
+.viz svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.viz svg:focus-visible { outline: 2px solid var(--pico-primary); outline-offset: 4px; border-radius: 4px; }
+.viz .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.viz .area { stroke: none; opacity: 0.12; }
+.viz .curve-before .line { stroke: var(--pico-muted-color); stroke-dasharray: 6 4; }
+.viz .curve-after .line, .viz .curve-b .line { stroke: var(--series-b); }
+.viz .curve-after .area, .viz .curve-b .area { fill: var(--series-b); }
+.viz .curve-a .line { stroke: var(--series-a); }
+.viz .curve-a .area { fill: var(--series-a); }
+.viz .baseline { stroke: var(--pico-muted-border-color); stroke-width: 1; }
+.viz .marker { stroke: var(--pico-muted-color); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.viz .crosshair { stroke: var(--pico-muted-color); stroke-width: 1; }
+.viz .tick { fill: var(--pico-muted-color); font-size: 12px; }
+.viz .label { fill: var(--pico-color); font-size: 13px; }
+@media (max-width: 576px) {
+  /* The chart shrinks to fit a phone; enlarge its text so it stays readable (about 12px). */
+  .viz .tick { font-size: 16px; }
+  .viz .label { font-size: 16px; }
+}
+.viz-tooltip {
+  position: absolute; top: 0; pointer-events: none; z-index: 1;
+  padding: 0.4rem 0.6rem; font-size: 0.8em; white-space: nowrap;
+  background: var(--pico-card-background-color); border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius); box-shadow: var(--pico-card-box-shadow);
+}
+.viz-tooltip .tip-title { color: var(--pico-muted-color); margin-bottom: 0.15rem; }
+.viz-tooltip .key { width: 12px; }

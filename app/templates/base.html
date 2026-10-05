@@ -20,6 +20,7 @@
         <li><a href="/" {% if page == "board" %}aria-current="page"{% endif %}>Leaderboard</a></li>
         <li><a href="/predict" {% if page == "predict" %}aria-current="page"{% endif %}>Predict</a></li>
         <li><a href="/games" {% if page == "history" %}aria-current="page"{% endif %}>History</a></li>
+        <li><a href="/how-it-works" {% if page == "how" %}aria-current="page"{% endif %}>How it works</a></li>
         {% if user %}
         <li><a href="/players/new" {% if page == "player" %}aria-current="page"{% endif %}>Add player</a></li>
         <li><a href="/games/new" {% if page == "game" %}aria-current="page"{% endif %}>Record game</a></li>

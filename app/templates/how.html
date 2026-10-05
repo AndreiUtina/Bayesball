@@ -1,0 +1,446 @@
+{% extends "base.html" %}
+{% block title %}How it works · Bayesball{% endblock %}
+
+{% macro pct(p) %}{{ (p * 100)|round|int }}%{% endmacro %}
+{% macro skill(mu, sd) %}{{ "%+.2f"|format(mu) }} <small class="muted">± {{ "%.2f"|format(sd) }}</small>{% endmacro %}
+
+{# A bell-curve chart drawn on the server (app/explain.py); the script at the bottom adds the hover readout. #}
+{% macro figure(fig, label) %}
+<div class="viz" data-hover='{{ fig.hover|tojson }}'>
+  <svg viewBox="0 0 480 200" role="img" aria-label="{{ label }}" tabindex="0">
+    {% for c in fig.curves %}
+    <g class="curve curve-{{ c.key }}">
+      {% if c.area %}<path class="area" d="{{ c.area }}"/>{% endif %}
+      <path class="line" d="{{ c.line }}"/>
+    </g>
+    {% endfor %}
+    <line class="baseline" x1="12" x2="468" y1="{{ fig.baseline }}" y2="{{ fig.baseline }}"/>
+    {% for x, tick in fig.ticks %}
+    <text class="tick" x="{{ '%.1f'|format(x) }}" y="{{ fig.baseline + 18 }}" text-anchor="middle">{{ tick }}</text>
+    {% endfor %}
+    {% if fig.marker is not none %}
+    <line class="marker" x1="{{ '%.1f'|format(fig.marker) }}" x2="{{ '%.1f'|format(fig.marker) }}" y1="30" y2="{{ fig.baseline }}"/>
+    {% endif %}
+    {% for x, y, anchor, text in fig.labels %}
+    <text class="label" x="{{ '%.1f'|format(x) }}" y="{{ '%.1f'|format(y) }}" text-anchor="{{ anchor }}">{{ text }}</text>
+    {% endfor %}
+    <line class="crosshair" x1="0" x2="0" y1="30" y2="{{ fig.baseline }}" visibility="hidden"/>
+  </svg>
+  <div class="viz-tooltip" hidden></div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<hgroup>
+  <h1>How the ratings work</h1>
+  <p>From a game's score to the leaderboard and the predictions</p>
+</hgroup>
+
+<p>
+  Bayesball doesn't describe a player with one number. For every player it keeps a
+  <strong>belief</strong>: a best guess of their skill <em>and</em> how sure it is of that guess.
+  After every game it updates the belief with <strong>Bayes' theorem</strong>, the rule for
+  learning from evidence. This page explains each number on the site, step by step.
+</p>
+<p><small class="muted">
+  The examples below aren't written by hand: they are calculated live, by the same code that
+  rates the real games, with the site's current settings.
+</small></p>
+
+<nav class="toc" aria-label="Contents">
+  <ol>
+    <li><a href="#skill">A skill is a bell curve</a></li>
+    <li><a href="#leaderboard">The leaderboard numbers</a></li>
+    <li><a href="#prior">Where a new player starts</a></li>
+    <li><a href="#model">What a game tells us</a></li>
+    <li><a href="#bayes">Bayes' theorem</a></li>
+    <li><a href="#example">Worked example</a></li>
+    <li><a href="#surprise">Winning by less than expected</a></li>
+    <li><a href="#predictions">Predictions</a></li>
+    <li><a href="#drift">Skills can change</a></li>
+    <li><a href="#limits">Limits</a></li>
+  </ol>
+</nav>
+
+<section id="skill">
+  <h2>1. A skill is a bell curve, not a number</h2>
+  <p>Each player has two skills, <strong>{{ ex.att }}</strong> and <strong>{{ ex.dfn }}</strong>,
+    and each one is a bell curve:</p>
+  <ul>
+    <li>its <strong>centre</strong>, <em>μ</em> ("mu"), is the best guess;</li>
+    <li>its <strong>width</strong>, <em>σ</em> ("sigma"), is the uncertainty: about two times in
+      three, the true skill lies within ±σ of the centre.</li>
+  </ul>
+  <p>Skills are measured in <strong>goals</strong>, compared with an average player (0). Two
+    players who are both +2 are expected to beat two average players by about 2 goals.</p>
+  <p>The <strong>overall</strong> skill is the average of {{ ex.att }} and {{ ex.dfn }}. The two
+    are linked: a good attacker is probably at least a decent defender (the model starts with a
+    correlation of {{ s.role_correlation }}). So a game played in {{ ex.att }} also teaches the
+    model a little about your {{ ex.dfn }}.</p>
+</section>
+
+<section id="leaderboard">
+  <h2>2. The numbers on the leaderboard</h2>
+  <div class="overflow-auto">
+    <table>
+      <thead><tr><th>Column</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Skill</strong></td><td>The best guess ± the uncertainty: <em>μ ± σ</em>.</td></tr>
+        <tr><td><strong>Score</strong></td><td><em>μ − {{ k|int }}σ</em>, a cautious estimate: we're about 98% sure the true skill is at least this high. The table is sorted by it.</td></tr>
+        <tr><td><span class="badge">provisional</span></td><td>Fewer than {{ provisional_games }} games played: the rating is still settling.</td></tr>
+        <tr><td><strong>Last</strong></td><td>How much the skill moved in the player's latest game.</td></tr>
+        <tr><td><strong>W-L</strong></td><td>Games won and lost.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Why sort by Score rather than Skill? A new player who wins one game, partly by luck, can
+    have a high best guess but also a wide uncertainty. Score keeps them down until more games
+    confirm it. A brand-new player is 0 ± {{ "%.1f"|format(new_overall_sd) }} overall, so their
+    Score is {{ "%.1f"|format(-k * new_overall_sd) }}. The Attack and Defence tabs use the same rule
+    for that one skill.</p>
+</section>
+
+<section id="prior">
+  <h2>3. Where a new player starts: the prior</h2>
+  <p>The <a href="/players/new">Add player</a> form turns three simple answers into the starting
+    bell curve, called the <strong>prior</strong>:</p>
+  <div class="grid">
+    <div>
+      <table>
+        <thead><tr><th>Experience</th><th>Starting skill</th></tr></thead>
+        <tbody>
+          {% for label, mu in experience %}
+          <tr><td>{{ label }}</td><td>{{ "%+.1f"|format(mu) if mu else "0" }} goals</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>How sure?</th><th>Starting σ</th></tr></thead>
+        <tbody>
+          {% for key, sd in certainty %}
+          <tr><td>{{ key|capitalize }}</td><td>{{ "%.2f"|format(sd) }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p><strong>Stronger at</strong> moves the chosen skill up by {{ "%.2f"|format(s.skill_scale / 2) }}
+    and the other one down by the same amount. With no answers, a player starts at
+    0 ± {{ s.default_sigma }} in both. A wide starting curve lets the first games move the rating a
+    lot; a narrow one ("high" certainty) means they move it less.</p>
+</section>
+
+<section id="model">
+  <h2>4. What a game tells us</h2>
+  <p>This is how the model describes a game:</p>
+  <p class="formula">goal difference (A − B) = strength of A − strength of B + luck</p>
+  <ul>
+    <li>A 2v2 team's <strong>strength</strong> is the average of its attacker's {{ ex.att }} skill
+      and its defender's {{ ex.dfn }} skill. In 1v1, each player's strength is their overall skill.</li>
+    <li><strong>Luck</strong> is bell-shaped too, with a spread of β = {{ s.beta }} goals: even
+      between two equal teams, the goal difference varies by about that much from game to game.</li>
+    <li>The winner always reaches {{ game_type.points_to_win or 10 }}, so the score says <em>how
+      much</em> better a team played: a 10–2 win is stronger evidence than 10–8. Teams are neutral:
+      there's no home side.</li>
+  </ul>
+</section>
+
+<section id="bayes">
+  <h2>5. Bayes' theorem: learning from a result</h2>
+  <div class="formula bayes">
+    <span>P(skill | result)</span> <span>=</span>
+    <span class="frac"><span>P(result | skill) × P(skill)</span><span>P(result)</span></span>
+  </div>
+  <p>In words: <strong>the new belief is the old belief, re-weighted by how well each possible
+    skill explains the result.</strong></p>
+  <ul>
+    <li><strong>P(skill)</strong>, the <em>prior</em>: the belief before the game (sections 1 and 3).</li>
+    <li><strong>P(result | skill)</strong>, the <em>likelihood</em>: how probable this score would
+      be if the skills had these values (section 4).</li>
+    <li><strong>P(skill | result)</strong>, the <em>posterior</em>: the belief after the game. It
+      becomes the prior for the next game.</li>
+    <li><strong>P(result)</strong> only scales the curve so its probabilities add up to 100%.</li>
+  </ul>
+  <p>The old belief and the luck are both bell curves, and that makes the new belief a bell curve
+    too, which can be calculated <em>exactly</em> in a few lines, with no simulation. It comes down
+    to four steps:</p>
+  <ol>
+    <li><strong>Predict</strong> the goal difference from the current beliefs.</li>
+    <li><strong>Surprise</strong> = the actual goal difference − the predicted one.</li>
+    <li>Each skill used in the game <strong>moves by surprise × gain</strong>. The gain is high
+      when the model is unsure about that skill, and low when the game was unpredictable anyway.</li>
+    <li>The <strong>uncertainty shrinks</strong>: every game is new evidence.</li>
+  </ol>
+  <p>What follows from this:</p>
+  <ul>
+    <li>Surprising results move ratings more than expected ones.</li>
+    <li>New players (wide curves) move faster than established ones.</li>
+    <li>The margin counts, so winning by less than expected can <em>lower</em> a rating (section 7).</li>
+    <li>The role you played moves most; your other role follows a little, through the link.</li>
+  </ul>
+  <details>
+    <summary>Show the maths</summary>
+    <p>Stack the skills of everyone in the game into one vector <em>s</em> with mean <em>μ</em> and
+      covariance <em>Σ</em> (the two skills of each player are linked by ρ = {{ s.role_correlation }}).
+      A vector <em>h</em> says how much each skill counts: +½ for Team A's attacker's {{ ex.att }}
+      and defender's {{ ex.dfn }}, −½ for Team B's, 0 for skills not in play. In 1v1 it is ±½ on
+      both skills of each player.</p>
+    <table class="maths">
+      <tbody>
+        <tr><td>skills can drift</td><td>Σ ← Σ + τ²I</td></tr>
+        <tr><td>predicted goal difference</td><td>m = hᵀμ</td></tr>
+        <tr><td>its variance (skills + luck)</td><td>v = hᵀΣh + β²</td></tr>
+        <tr><td>surprise</td><td>r = observed − m</td></tr>
+        <tr><td>gain of each skill</td><td>K = Σh / v</td></tr>
+        <tr><td>new best guesses</td><td>μ ← μ + K·r</td></tr>
+        <tr><td>new uncertainty</td><td>Σ ← Σ − K Kᵀ v</td></tr>
+      </tbody>
+    </table>
+    <p>This is the update of a Kalman filter, the exact Bayesian answer when everything is a bell
+      curve. Afterwards each player keeps their own 2×2 part of Σ (see <a href="#limits">Limits</a>).</p>
+  </details>
+</section>
+
+<section id="example">
+  <h2>6. Worked example: four new players</h2>
+  <p><strong>{{ ex.team_a }}</strong> (Ann in {{ ex.att }}, Bob in {{ ex.dfn }}) play
+    <strong>{{ ex.team_b }}</strong> (Cat in {{ ex.att }}, Dan in {{ ex.dfn }}). All four are new,
+    so every skill is 0 ± {{ s.default_sigma }}.</p>
+  <ol>
+    <li><strong>Before the game</strong>, the model predicts a goal difference of
+      {{ "%.1f"|format(ex.first.expected_margin) }} ± {{ "%.1f"|format(ex.first.margin_sd) }}:
+      {{ pct(ex.first.p_a) }} for each team.</li>
+    <li>{{ ex.team_a }} <strong>win {{ ex.score1[0] }}–{{ ex.score1[1] }}</strong>. Surprise:
+      {{ ex.margin1 }} − 0 = <strong>+{{ ex.margin1 }} goals</strong>.</li>
+    <li>Ann's {{ ex.att }} has a gain of {{ "%.2f"|format(ex.gain) }}, so it moves by
+      {{ ex.margin1 }} × {{ "%.2f"|format(ex.gain) }} = <strong>{{ "%+.2f"|format(ex.game1[0].change) }}</strong>.</li>
+  </ol>
+  <div class="overflow-auto">
+    <table>
+      <thead><tr><th>Skill</th><th>Before</th><th>After</th><th>Change</th></tr></thead>
+      <tbody>
+        {% for c in ex.game1 %}
+        <tr>
+          <td>{{ c.who }}'s {{ c.role }}</td>
+          <td>{{ skill(*c.before) }}</td>
+          <td>{{ skill(*c.after) }}</td>
+          <td class="{{ 'up' if c.change >= 0 else 'down' }}">{{ "%+.2f"|format(c.change) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>Ann didn't play {{ ex.dfn }}, yet her {{ ex.dfn }} moved
+      {{ "%+.2f"|format(ex.game1[1].change) }}: through the link between her two skills.</li>
+    <li>Her uncertainty shrank from {{ "%.2f"|format(ex.game1[0].before[1]) }} to
+      {{ "%.2f"|format(ex.game1[0].after[1]) }}: one game is evidence, but not much yet.</li>
+    <li>Bob mirrors Ann ({{ ex.dfn }} {{ "%+.2f"|format(ex.game1[0].change) }}, {{ ex.att }}
+      {{ "%+.2f"|format(ex.game1[1].change) }}), and Dan mirrors Cat.</li>
+  </ul>
+
+  <figure>
+    <div class="legend">
+      <span><span class="key key-before"></span>Before the game</span>
+      <span><span class="key key-after"></span>After the game</span>
+    </div>
+    {{ figure(ex.skill_figure, "Ann's " ~ ex.att ~ " skill before and after the game") }}
+    <figcaption>Ann's {{ ex.att }} skill, in goals. The curve shifts right (the best guess went up)
+      and gets a little narrower (less uncertain). Hover or use the arrow keys to read how likely
+      each skill level is.</figcaption>
+  </figure>
+</section>
+
+<section id="surprise">
+  <h2>7. Winning by less than expected</h2>
+  <p>The same four play a rematch, in the same positions. Now {{ ex.team_a }} are the favourites:
+    the model expects them to win by {{ "%.1f"|format(ex.rematch.expected_margin) }} goals
+    ({{ pct(ex.rematch.p_a) }} chance). They win <strong>{{ ex.score2[0] }}–{{ ex.score2[1] }}</strong>:
+    a win, but by {{ ex.score2[0] - ex.score2[1] }}, so the surprise is
+    <strong>{{ "%+.1f"|format(ex.surprise2) }}</strong>.</p>
+  <div class="overflow-auto">
+    <table>
+      <thead><tr><th>Overall skill</th><th>Before</th><th>After</th><th>Change</th></tr></thead>
+      <tbody>
+        {% for c in ex.game2 %}
+        <tr>
+          <td>{{ c.who }}</td>
+          <td>{{ skill(*c.before) }}</td>
+          <td>{{ skill(*c.after) }}</td>
+          <td class="{{ 'up' if c.change >= 0 else 'down' }}">{{ "%+.2f"|format(c.change) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p>The winners go <em>down</em> and the losers go up. The model doesn't reward a win as such,
+    but how the result compares with what it expected. Over many games that is fairer: narrowly
+    beating a weaker team isn't evidence of being much better than them.</p>
+</section>
+
+<section id="predictions">
+  <h2>8. Predictions</h2>
+  <p>For any matchup, the model predicts the goal difference as a bell curve too:</p>
+  <ul>
+    <li>its <strong>centre</strong> is the expected goal difference: strength of A − strength of B;</li>
+    <li>its <strong>width</strong> combines the luck (β) with the uncertainty of every player in
+      the game.</li>
+  </ul>
+  <p class="formula">P(A wins) = P(goal difference &gt; 0) = Φ(m / √v)</p>
+  <p>That's the area of the curve to the right of zero. Here is the rematch from section 7, as
+    predicted before it was played:</p>
+
+  <figure>
+    <div class="legend">
+      <span><span class="key key-a area-key"></span>{{ ex.team_a }} win</span>
+      <span><span class="key key-b area-key"></span>{{ ex.team_b }} win</span>
+      <span><span class="key key-marker"></span>Expected goal difference</span>
+    </div>
+    {{ figure(ex.margin_figure, "Predicted goal difference of the rematch") }}
+    <figcaption>Goal difference ({{ ex.team_a }} − {{ ex.team_b }}). The dotted line is the
+      expected difference, {{ "%+.1f"|format(ex.rematch.expected_margin) }}. Hover or use the arrow
+      keys to read the chance of each margin.</figcaption>
+  </figure>
+
+  <div class="overflow-auto">
+    <table>
+      <tbody>
+        <tr><td>{{ ex.team_a }} win</td><td><strong>{{ pct(ex.rematch.p_a) }}</strong></td></tr>
+        <tr><td>{{ ex.team_b }} win</td><td><strong>{{ pct(ex.rematch.p_b) }}</strong></td></tr>
+        <tr><td>Expected score</td><td>{{ ex.rematch.score[0] }}–{{ ex.rematch.score[1] }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li><strong>Expected score:</strong> the winner has {{ game_type.points_to_win or 10 }}; the loser
+      has {{ game_type.points_to_win or 10 }} minus the expected goal difference, rounded.</li>
+    <li><strong>Likely range (90%):</strong> m ± 1.645 √v goals, capped at the race to
+      {{ game_type.points_to_win or 10 }}.</li>
+    <li>Games with new players are predicted closer to 50%, because their wide curves add uncertainty.</li>
+    <li><a href="/predict">Predict</a>'s "Who plays where?" grid repeats this for every way the two
+      teams could split the roles. <a href="/balance">Balance teams</a> tries every split of four
+      players into teams and roles (12 options) and lists the closest to 50% first.</li>
+  </ul>
+</section>
+
+<section id="drift">
+  <h2>9. Skills can change</h2>
+  <p>Players improve, or get rusty. Before each game, the uncertainty of every skill in play grows
+    a little (τ = {{ s.tau }} goals per game), so the ratings keep listening to new results and
+    never freeze. Editing or deleting a past game recalculates every rating from the first game
+    onwards, in date order.</p>
+</section>
+
+<section id="limits">
+  <h2>10. Limits</h2>
+  <ul>
+    <li>The settings below are educated starting guesses. Once there are about 50 games, they'll
+      be tuned to fit the real results.</li>
+    <li>A race to {{ game_type.points_to_win or 10 }} caps the goal difference; the bell-curve model
+      treats it as open-ended. That's a good approximation for normal games, less so for very
+      lopsided ones.</li>
+    <li>Each player's own two skills are linked, but links <em>between</em> players (for example
+      "Ann and Bob have only ever played together") are dropped after each game. It's a standard
+      shortcut that keeps the maths fast; in tests with 500 simulated games it recovered the true
+      skills almost as well as the exact calculation.</li>
+    <li>A bad day, a new table or a sore wrist all look like luck to the model.</li>
+  </ul>
+
+  <h3>Current settings</h3>
+  <div class="overflow-auto">
+    <table>
+      <tbody>
+        <tr><td>Luck: spread of the goal difference between equal teams (β)</td><td>{{ s.beta }} goals</td></tr>
+        <tr><td>Starting uncertainty of a new player's skill (σ)</td><td>{{ s.default_sigma }} goals</td></tr>
+        <tr><td>Link between a player's {{ ex.att }} and {{ ex.dfn }} (ρ)</td><td>{{ s.role_correlation }}</td></tr>
+        <tr><td>One experience step on the Add player form</td><td>{{ s.skill_scale }} goals</td></tr>
+        <tr><td>Drift of a skill per game (τ)</td><td>{{ s.tau }} goals</td></tr>
+        <tr><td>Score = μ − k·σ, with k</td><td>{{ k|int }}</td></tr>
+        <tr><td>Provisional until</td><td>{{ provisional_games }} games</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<script>
+  // Hover / keyboard readout for the bell-curve charts: the chance of being above (or below)
+  // the point under the pointer, computed from each curve's mean and standard deviation.
+  (() => {
+    const erf = (x) => {
+      const t = 1 / (1 + 0.3275911 * Math.abs(x));
+      const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+      return x >= 0 ? y : -y;
+    };
+    const above = (x, mu, sd) => 0.5 * (1 - erf((x - mu) / (sd * Math.SQRT2)));
+    const pct = (p) => `${Math.round(p * 100)}%`;
+    const signed = (x) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(1);
+    const [W, LEFT, RIGHT] = [480, 12, 12];
+
+    document.querySelectorAll(".viz").forEach((viz) => {
+      const svg = viz.querySelector("svg");
+      const tip = viz.querySelector(".viz-tooltip");
+      const hair = viz.querySelector(".crosshair");
+      const { kind, x0, x1, series, teams } = JSON.parse(viz.dataset.hover);
+      const toPx = (x) => LEFT + ((x - x0) / (x1 - x0)) * (W - LEFT - RIGHT);
+      let current = series[series.length - 1].mu;
+
+      const row = (key, value, label) => {
+        const div = document.createElement("div");
+        const swatch = document.createElement("span");
+        swatch.className = `key key-${key}`;
+        const strong = document.createElement("strong");
+        strong.textContent = value;
+        div.append(swatch, strong, document.createTextNode(label ? ` ${label}` : ""));
+        return div;
+      };
+
+      const show = (x) => {
+        current = Math.min(x1, Math.max(x0, x));
+        const px = toPx(current);
+        hair.setAttribute("x1", px);
+        hair.setAttribute("x2", px);
+        hair.setAttribute("visibility", "visible");
+        const title = document.createElement("div");
+        title.className = "tip-title";
+        tip.replaceChildren(title);
+        if (kind === "skill") {
+          title.textContent = `Skill above ${signed(current)} goals`;
+          series.forEach((s) => tip.append(row(s.key, pct(above(current, s.mu, s.sd)), s.label)));
+        } else {
+          const s = series[0];
+          const aWins = current >= 0;
+          const team = aWins ? teams[0] : teams[1];
+          title.textContent = `${team} win by more than ${Math.abs(current).toFixed(1)}`;
+          const p = aWins ? above(current, s.mu, s.sd) : 1 - above(current, s.mu, s.sd);
+          tip.append(row(aWins ? "a" : "b", pct(p), "chance"));
+        }
+        tip.hidden = false;
+        const share = px / W;
+        tip.style.left = share < 0.6 ? `calc(${share * 100}% + 12px)` : "";
+        tip.style.right = share < 0.6 ? "" : `calc(${(1 - share) * 100}% + 12px)`;
+      };
+      const hide = () => {
+        tip.hidden = true;
+        hair.setAttribute("visibility", "hidden");
+      };
+
+      svg.addEventListener("pointermove", (e) => {
+        const box = svg.getBoundingClientRect();
+        const px = ((e.clientX - box.left) / box.width) * W;
+        show(x0 + ((px - LEFT) / (W - LEFT - RIGHT)) * (x1 - x0));
+      });
+      svg.addEventListener("pointerleave", hide);
+      svg.addEventListener("focus", () => show(current));
+      svg.addEventListener("blur", hide);
+      svg.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault();
+          show(current + (e.key === "ArrowRight" ? 0.5 : -0.5));
+        }
+      });
+    });
+  })();
+</script>
+{% endblock %}

@@ -130,8 +130,14 @@
 <script>
   document.addEventListener("DOMContentLoaded", () => {
     const data = {{ chart|tojson }};
-    const colors = { Attack: "#e8743b", Defence: "#3b8beb", Overall: "#8f96a3" };
-    const fallback = ["#e8743b", "#3b8beb", "#2ca58d", "#8f96a3"];
+    // The site's chart colours (style.css), so light and dark mode each get their checked steps.
+    const css = getComputedStyle(document.documentElement);
+    const colors = {
+      Attack: css.getPropertyValue("--series-a").trim() || "#eb6834",
+      Defence: css.getPropertyValue("--series-b").trim() || "#2a78d6",
+      Overall: "#8f96a3",
+    };
+    const fallback = [colors.Attack, colors.Defence, "#1baf7a", "#8f96a3"];
     const datasets = [];
     data.series.forEach((s, i) => {
       const color = colors[s.name] || fallback[i % fallback.length];
