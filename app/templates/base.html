@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <link rel="stylesheet" href="/static/style.css">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2/dist/htmx.min.js" defer></script>
+  {% block head %}{% endblock %}
 </head>
 <body>
   <header class="container">
@@ -14,6 +15,8 @@
       <ul><li><a href="/" class="brand"><img src="/static/logo.jpg" alt="" class="logo" width="96" height="64"><strong>Bayesball</strong></a></li></ul>
       <ul>
         <li><a href="/" {% if page == "board" %}aria-current="page"{% endif %}>Leaderboard</a></li>
+        <li><a href="/predict" {% if page == "predict" %}aria-current="page"{% endif %}>Predict</a></li>
+        <li><a href="/games" {% if page == "history" %}aria-current="page"{% endif %}>History</a></li>
         <li><a href="/players/new" {% if page == "player" %}aria-current="page"{% endif %}>Add player</a></li>
         <li><a href="/games/new" {% if page == "game" %}aria-current="page"{% endif %}>Record game</a></li>
       </ul>

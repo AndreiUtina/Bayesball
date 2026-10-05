@@ -62,7 +62,7 @@
         {% for row in rows %}
         <tr>
           <td>{{ row.rank }}</td>
-          <td>{{ row.name }}{% if row.provisional %} <small class="badge">provisional</small>{% endif %}</td>
+          <td><a href="/players/{{ row.player_id }}?game_type_id={{ game_type.id }}">{{ row.name }}</a>{% if row.provisional %} <small class="badge">provisional</small>{% endif %}</td>
           <td><strong>{{ "%.1f"|format(row.score) }}</strong></td>
           <td>{{ "%+.1f"|format(row.mu) }} <small class="muted">± {{ "%.1f"|format(row.sigma) }}</small></td>
           <td>{{ row.games }}</td>

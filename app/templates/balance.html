@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Balance teams · Bayesball{% endblock %}
+
+{% macro pct(p) %}{{ (p * 100)|round|int }}%{% endmacro %}
+
+{% macro team(side) %}
+{% for name, role in side %}{{ name }}{% if role %} <small class="muted">{{ role }}</small>{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+{% endmacro %}
+
+{% block content %}
+<nav class="tabs">
+  <ul>
+    <li><a href="/predict?game_type_id={{ game_type.id }}">Predict a game</a></li>
+    <li><a href="/balance?game_type_id={{ game_type.id }}" aria-current="page">Balance teams</a></li>
+  </ul>
+</nav>
+
+<h1>Balance teams</h1>
+<p>Tick the {{ sizes|join(" or ") }} players at the table to see the fairest ways to split them
+  into teams{% if game_type.roles|length > 1 %} and roles{% endif %}.</p>
+
+{% if error %}<article class="notice error">{{ error }}</article>{% endif %}
+
+{% if players|length < 2 %}
+<article>
+  You need at least two players. <a href="/players/new">Add a player</a>.
+</article>
+{% else %}
+<form method="get" action="/balance">
+  <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
+  <fieldset class="choices">
+    {% for p in players %}
+    <label><input type="checkbox" name="p" value="{{ p.id }}" {% if p.id|string in picked %}checked{% endif %}> {{ p.name }}</label>
+    {% endfor %}
+  </fieldset>
+  <button type="submit">Find fair teams</button>
+</form>
+{% endif %}
+
+{% if options %}
+<h2>Fairest first</h2>
+<div class="overflow-auto">
+  <table class="options striped">
+    <thead>
+      <tr><th>Team A</th><th>Team B</th><th>Chances</th><th>Expected</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for o in options %}
+      <tr {% if loop.first %}class="best"{% endif %}>
+        <td>{{ team(o.side_a) }}</td>
+        <td>{{ team(o.side_b) }}</td>
+        <td>{{ pct(o.p_a) }} – {{ pct(o.p_b) }}</td>
+        <td>{% if o.score %}{{ o.score[0] }}–{{ o.score[1] }}{% endif %}</td>
+        <td><a href="{{ o.predict_url }}">Details</a> · <a href="{{ o.record_url }}">Record</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

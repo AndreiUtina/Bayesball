@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% from "_teams.html" import format_tabs, team_picker %}
+{% block title %}Predict · Bayesball{% endblock %}
+
+{% macro pct(p) %}{{ (p * 100)|round|int }}%{% endmacro %}
+
+{# A goal difference (Team A − Team B) in words, e.g. "Cat & Dan by 4". #}
+{% macro goal_diff(x, m) %}
+{%- if x >= 0.5 %}{{ m.team_a }} by {{ "%.0f"|format(x) }}
+{%- elif x <= -0.5 %}{{ m.team_b }} by {{ "%.0f"|format(-x) }}
+{%- else %}level{% endif -%}
+{% endmacro %}
+
+{% block content %}
+<nav class="tabs">
+  <ul>
+    <li><a href="/predict?game_type_id={{ game_type.id }}" aria-current="page">Predict a game</a></li>
+    <li><a href="/balance?game_type_id={{ game_type.id }}">Balance teams</a></li>
+  </ul>
+</nav>
+
+<h1>Predict a game</h1>
+
+{% if error %}<article class="notice error">{{ error }}</article>{% endif %}
+
+{% if players|length < 2 %}
+<article>
+  You need at least two players to predict a game. <a href="/players/new">Add a player</a>.
+</article>
+{% else %}
+
+{% if matchup %}
+{% set p = matchup.prediction %}
+<article class="prediction">
+  <div class="prob-labels">
+    <span><strong>{{ matchup.team_a }}</strong> {{ pct(p.p_a) }}</span>
+    {% if p.p_draw > 0.005 %}<span class="muted">draw {{ pct(p.p_draw) }}</span>{% endif %}
+    <span>{{ pct(p.p_b) }} <strong>{{ matchup.team_b }}</strong></span>
+  </div>
+  <div class="prob-bar" role="img"
+       aria-label="{{ matchup.team_a }} {{ pct(p.p_a) }}, {{ matchup.team_b }} {{ pct(p.p_b) }}">
+    <span class="side-a" style="width: {{ '%.1f'|format(p.p_a * 100) }}%"></span>
+    {% if p.p_draw > 0.005 %}<span class="draw" style="width: {{ '%.1f'|format(p.p_draw * 100) }}%"></span>{% endif %}
+    <span class="side-b" style="width: {{ '%.1f'|format(p.p_b * 100) }}%"></span>
+  </div>
+
+  {% if p.score %}
+  <p>Expected score:
+    <strong>{{ matchup.team_a }} {{ p.score[0] }} – {{ p.score[1] }} {{ matchup.team_b }}</strong></p>
+  {% else %}
+  <p>Expected goal difference: <strong>{{ goal_diff(p.expected_margin, matchup) }}</strong></p>
+  {% endif %}
+  <p><small class="muted">
+    Likely range of the goal difference (90%): from {{ goal_diff(matchup.low, matchup) }}
+    to {{ goal_diff(matchup.high, matchup) }}.
+    {% if matchup.provisional %}Some of these players have played few games, so this is still a rough guess.{% endif %}
+  </small></p>
+  <a href="{{ matchup.record_url }}" role="button" class="secondary">Record this game</a>
+</article>
+
+{% if matchup.grid|length > 1 %}
+<h2>Who plays where?</h2>
+<p><small class="muted">
+  Team A's chance of winning for each way the two teams could split the roles.
+  The outlined cell is the matchup as picked.
+</small></p>
+<div class="overflow-auto">
+  <table class="role-grid">
+    <thead>
+      <tr>
+        <th><small class="muted">Team A ↓ &nbsp; Team B →</small></th>
+        {% for col in matchup.cols %}
+        <th>{% for line in col %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in matchup.rows %}
+      {% set i = loop.index0 %}
+      <tr>
+        <th>{% for line in row %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</th>
+        {% for p_a in matchup.grid[i] %}
+        <td {% if i == 0 and loop.first %}class="current"{% endif %}>{{ pct(p_a) }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<ul class="advice">
+  {% for line in matchup.advice %}<li>{{ line }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+<h2>Try another matchup</h2>
+{% endif %}
+
+{{ format_tabs("/predict", game_type, formats, fmt) }}
+<form method="get" action="/predict">
+  <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
+  <input type="hidden" name="format" value="{{ fmt }}">
+  {{ team_picker(players, seat_roles, values) }}
+  <button type="submit">Predict</button>
+</form>
+{% endif %}
+{% endblock %}

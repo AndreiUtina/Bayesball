@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_teams.html" import format_tabs, team_picker %}
 {% block title %}Record game · Bayesball{% endblock %}
 
 {% macro game_row(row, num, score="", swap_a=False, swap_b=False) %}
@@ -33,38 +34,13 @@
 </article>
 {% else %}
 
-{% if formats|length > 1 %}
-<nav class="tabs" hx-boost="true">
-  <ul>
-    {% for f in formats %}
-    <li><a href="/games/new?game_type_id={{ game_type.id }}&format={{ f }}" {% if f == fmt %}aria-current="page"{% endif %}>{{ f }}</a></li>
-    {% endfor %}
-  </ul>
-</nav>
-{% endif %}
+{{ format_tabs("/games/new", game_type, formats, fmt) }}
 
 <form method="post" action="/games/new">
   <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
   <input type="hidden" name="format" value="{{ fmt }}">
 
-  <div class="grid">
-    {% for field, team in [("a", "Team A"), ("b", "Team B")] %}
-    <fieldset>
-      <legend><strong>{{ team }}</strong></legend>
-      {% for role in seat_roles %}
-      {% set chosen = values[field][loop.index0] %}
-      <label>{{ role|capitalize if role else "Player" }}
-        <select name="{{ field }}" required>
-          <option value="">Choose…</option>
-          {% for p in players %}
-          <option value="{{ p.id }}" {% if chosen == p.id|string %}selected{% endif %}>{{ p.name }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      {% endfor %}
-    </fieldset>
-    {% endfor %}
-  </div>
+  {{ team_picker(players, seat_roles, values) }}
 
   <fieldset>
     <legend><strong>Scores</strong> <small class="muted">in the order the games were played</small></legend>

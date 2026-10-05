@@ -1,0 +1,35 @@
+{# Pieces shared by the "Record games" and "Predict" pages. #}
+
+{% macro format_tabs(path, game_type, formats, fmt) %}
+{% if formats|length > 1 %}
+<nav class="tabs" hx-boost="true">
+  <ul>
+    {% for f in formats %}
+    <li><a href="{{ path }}?game_type_id={{ game_type.id }}&format={{ f }}" {% if f == fmt %}aria-current="page"{% endif %}>{{ f }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+{% endmacro %}
+
+{# One dropdown per seat: fields "a" and "b" hold each team's player ids, in role order. #}
+{% macro team_picker(players, seat_roles, values) %}
+<div class="grid">
+  {% for field, team in [("a", "Team A"), ("b", "Team B")] %}
+  <fieldset>
+    <legend><strong>{{ team }}</strong></legend>
+    {% for role in seat_roles %}
+    {% set chosen = values[field][loop.index0] %}
+    <label>{{ role|capitalize if role else "Player" }}
+      <select name="{{ field }}" required>
+        <option value="">Choose…</option>
+        {% for p in players %}
+        <option value="{{ p.id }}" {% if chosen == p.id|string %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+</div>
+{% endmacro %}

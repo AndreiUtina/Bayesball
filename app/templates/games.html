@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}History · Bayesball{% endblock %}
+
+{% macro team(seats) %}
+{% for s in seats %}
+<span class="seat"><a href="/players/{{ s.player_id }}?game_type_id={{ game_type.id }}">{{ s.name }}</a>{% if s.role %} <small class="muted">{{ s.role }}</small>{% endif %}
+<small class="{{ 'up' if s.change >= 0 else 'down' }}">{{ "%+.2f"|format(s.change) }}</small></span>{% if not loop.last %}<br>{% endif %}
+{% endfor %}
+{% endmacro %}
+
+{% macro page_link(n) %}/games?game_type_id={{ game_type.id }}{% if player_id %}&player={{ player_id }}{% endif %}&page={{ n }}{% endmacro %}
+
+{% block content %}
+<h1>Game history</h1>
+
+<form method="get" action="/games" class="filter">
+  <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
+  <select name="player" aria-label="Show games of" onchange="this.form.submit()">
+    <option value="">All players</option>
+    {% for p in players %}
+    <option value="{{ p.id }}" {% if p.id == player_id %}selected{% endif %}>{{ p.name }}</option>
+    {% endfor %}
+  </select>
+  <noscript><button type="submit">Show</button></noscript>
+</form>
+
+{% if games %}
+<p><small class="muted">
+  Games {{ first }}–{{ first + games|length - 1 }} of {{ total }}, newest first.
+  The number next to each player is their rating change in that game.
+</small></p>
+<div class="overflow-auto">
+  <table class="history striped">
+    <thead>
+      <tr><th>When</th><th>Team A</th><th>Score</th><th>Team B</th></tr>
+    </thead>
+    <tbody>
+      {% for g in games %}
+      <tr>
+        <td><small>{{ g.played_at|when }}</small>{% if g.notes %}<br><small class="muted">{{ g.notes }}</small>{% endif %}</td>
+        <td {% if g.outcome == "A" %}class="won"{% endif %}>{{ team(g.side_a) }}</td>
+        <td><strong>{{ g.score_a }}–{{ g.score_b }}</strong></td>
+        <td {% if g.outcome == "B" %}class="won"{% endif %}>{{ team(g.side_b) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="pager">
+  <span>{% if has_newer %}<a href="{{ page_link(page_num - 1) }}">← Newer</a>{% endif %}</span>
+  <span>{% if has_older %}<a href="{{ page_link(page_num + 1) }}">Older →</a>{% endif %}</span>
+</nav>
+{% else %}
+<article>
+  No games {% if player_id %}for this player {% endif %}yet. <a href="/games/new">Record a game</a>.
+</article>
+{% endif %}
+{% endblock %}

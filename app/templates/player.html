@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}{{ player.name }} · Bayesball{% endblock %}
+
+{% block head %}
+{% if chart %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" defer></script>{% endif %}
+{% endblock %}
+
+{% macro names(seats) %}
+{% for s in seats %}<a href="/players/{{ s.player_id }}?game_type_id={{ game_type.id }}">{{ s.name }}</a>{% if not loop.last %} &amp; {% endif %}{% endfor %}
+{% endmacro %}
+
+{% macro record_cells(r) %}
+<td>{{ r.games }}</td>
+<td>{{ r.wins }}-{{ r.losses }}{% if game_type.allow_draws %}-{{ r.draws }}{% endif %}</td>
+<td>{{ (r.win_rate * 100)|round|int }}%</td>
+{% endmacro %}
+
+{% block content %}
+<hgroup>
+  <h1>{{ player.name }}</h1>
+  <p>
+    {{ game_type.name }}
+    {% if rank %} · #{{ rank }} of {{ board_size }}{% endif %}
+    {% if provisional %} · <span class="badge">provisional</span>{% endif %}
+    {% if not player.active %} · inactive{% endif %}
+  </p>
+</hgroup>
+
+<div class="stat-cards">
+  {% for label, mu, sigma in skills %}
+  <article>
+    <small class="muted">{{ label }}</small>
+    <div class="big">{{ "%+.1f"|format(mu) }}</div>
+    <small class="muted">± {{ "%.1f"|format(sigma) }}</small>
+  </article>
+  {% endfor %}
+  <article>
+    <small class="muted">Record</small>
+    <div class="big">{{ rating.wins }}–{{ rating.losses }}{% if game_type.allow_draws %}–{{ rating.draws }}{% endif %}</div>
+    <small class="muted">{{ rating.games_played }} game{{ "" if rating.games_played == 1 else "s" }}</small>
+  </article>
+</div>
+
+<h2>Rating over time</h2>
+{% if chart %}
+<div class="chart">
+  <canvas id="rating-chart" role="img" aria-label="{{ player.name }}'s skill after each game"></canvas>
+</div>
+<p><small class="muted">
+  Lines: the best guess of the skill after each game, in goals against an average player.
+  Shaded: ± the uncertainty, which shrinks as more games are played.
+</small></p>
+{% else %}
+<p class="muted">No games yet.</p>
+{% endif %}
+
+<h2>Recent games</h2>
+{% if recent %}
+<div class="overflow-auto">
+  <table class="striped">
+    <thead>
+      <tr><th>When</th><th>Result</th><th>Role</th><th>With</th><th>Against</th><th>Change</th></tr>
+    </thead>
+    <tbody>
+      {% for g in recent %}
+      {% set mates, opponents = g.teams_for(player.id) %}
+      {% set seat = g.seat(player.id) %}
+      {% set result = g.result_for(player.id) %}
+      {% set own, other = g.score_for(player.id) %}
+      <tr>
+        <td><small>{{ g.played_at|when }}</small></td>
+        <td><span class="result-{{ result }}">{{ result }}</span> {{ own }}–{{ other }}</td>
+        <td>{{ seat.role or "–" }}</td>
+        <td>{{ names(mates) if mates else "–" }}</td>
+        <td>{{ names(opponents) }}</td>
+        <td class="{{ 'up' if seat.change >= 0 else 'down' }}">{{ "%+.2f"|format(seat.change) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if more_games %}
+<p><a href="/games?game_type_id={{ game_type.id }}&player={{ player.id }}">All of {{ player.name }}'s games →</a></p>
+{% endif %}
+{% else %}
+<p class="muted">No games yet.</p>
+{% endif %}
+
+<div class="grid">
+  <section>
+    <h2>Teammates</h2>
+    {% if teammates %}
+    <table>
+      <thead><tr><th>Player</th><th>Games</th><th>W-L</th><th>Win %</th></tr></thead>
+      <tbody>
+        {% for r in teammates %}
+        <tr><td><a href="/players/{{ r.player_id }}?game_type_id={{ game_type.id }}">{{ r.name }}</a></td>{{ record_cells(r) }}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No team games yet.</p>
+    {% endif %}
+  </section>
+  <section>
+    <h2>Opponents</h2>
+    {% if opponents %}
+    <table>
+      <thead><tr><th>Player</th><th>Games</th><th>W-L</th><th>Win %</th></tr></thead>
+      <tbody>
+        {% for r in opponents %}
+        <tr><td><a href="/players/{{ r.player_id }}?game_type_id={{ game_type.id }}">{{ r.name }}</a></td>{{ record_cells(r) }}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p><small class="muted">W-L is {{ player.name }}'s record in games against that player.</small></p>
+    {% else %}
+    <p class="muted">No games yet.</p>
+    {% endif %}
+  </section>
+</div>
+
+{% if chart %}
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const data = {{ chart|tojson }};
+    const colors = { Attack: "#e8743b", Defence: "#3b8beb", Overall: "#8f96a3" };
+    const fallback = ["#e8743b", "#3b8beb", "#2ca58d", "#8f96a3"];
+    const datasets = [];
+    data.series.forEach((s, i) => {
+      const color = colors[s.name] || fallback[i % fallback.length];
+      if (s.band) {
+        const band = { label: s.name, band: true, borderWidth: 0, pointRadius: 0, backgroundColor: color + "26" };
+        datasets.push({ ...band, data: s.mu.map((m, k) => m + s.sd[k]), fill: false });
+        datasets.push({ ...band, data: s.mu.map((m, k) => m - s.sd[k]), fill: "-1" });
+      }
+      datasets.push({
+        label: s.name, data: s.mu, borderColor: color, backgroundColor: color,
+        borderDash: s.band ? [] : [6, 4], pointRadius: 2, tension: 0.25,
+      });
+    });
+    const muted = getComputedStyle(document.body).getPropertyValue("--pico-muted-color").trim() || "#888";
+    const signed = (x) => (x >= 0 ? "+" : "") + x.toFixed(2);
+    new Chart(document.getElementById("rating-chart"), {
+      type: "line",
+      data: { labels: data.labels, datasets },
+      options: {
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: { title: { display: true, text: "Game", color: muted }, ticks: { color: muted }, grid: { display: false } },
+          y: { title: { display: true, text: "Skill (goals)", color: muted }, ticks: { color: muted }, grid: { color: "rgba(128,128,128,0.2)" } },
+        },
+        plugins: {
+          legend: { labels: { color: muted, usePointStyle: true, pointStyle: "line", filter: (item, chartData) => !chartData.datasets[item.datasetIndex].band } },
+          tooltip: {
+            filter: (item) => !item.dataset.band,
+            callbacks: {
+              title: (items) => data.titles[items[0].dataIndex],
+              label: (item) => {
+                const s = data.series.find((x) => x.name === item.dataset.label);
+                return `${s.name}: ${signed(item.raw)} ± ${s.sd[item.dataIndex].toFixed(2)}`;
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+</script>
+{% endif %}
+{% endblock %}
