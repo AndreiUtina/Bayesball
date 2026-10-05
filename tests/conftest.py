@@ -1,15 +1,22 @@
+import os
+
 import pytest
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine
 
 from app import auth
+from app.config import database_url
 from app.db import get_session, init_db
 from app.main import app
 from app.models import User
 
 PASSWORD = "correct horse battery"
+
+# Set this to a Postgres database to run the tests against it (CI does); it gets wiped.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
 
 @pytest.fixture(autouse=True)
@@ -22,12 +29,19 @@ def fast_logins(monkeypatch):
 
 @pytest.fixture
 def engine():
-    """A fresh in-memory database with the Foosball game type."""
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
+    """A fresh database with the Foosball game type: in memory, or TEST_DATABASE_URL."""
+    if TEST_DATABASE_URL:
+        engine = create_engine(database_url(TEST_DATABASE_URL))
+        with engine.begin() as connection:
+            connection.execute(text("drop schema public cascade"))
+            connection.execute(text("create schema public"))
+    else:
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
     init_db(engine)
-    return engine
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture
