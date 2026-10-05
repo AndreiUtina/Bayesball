@@ -16,8 +16,21 @@ uv sync                                   # install dependencies
 uv run uvicorn app.main:app --reload      # start the site at http://localhost:8000
 ```
 
-The JSON API is documented (and can be tried out) at http://localhost:8000/docs. Locally the
-data lives in `data/bayesball.db`; set `DATABASE_URL` to use another database.
+On the first start the log shows a one-time link (`No owner account yet. Create it here: …`).
+Open it to create your owner account. Anyone can view the site; adding or changing players and
+games needs a login, and the owner invites other admins from the **Admins** page.
+
+The JSON API is documented (and can be tried out) at http://localhost:8000/docs; log in on the
+site first to use the write endpoints. Locally the data lives in `data/bayesball.db`; set
+`DATABASE_URL` to use another database.
+
+| Setting | Meaning |
+|---|---|
+| `DATABASE_URL` | database address (default: the local SQLite file) |
+| `SECRET_KEY` | long random secret that signs login cookies (required online) |
+| `SECURE_COOKIES` | `true` to send the login cookie over HTTPS only (online) |
+| `PUBLIC_URL` | the site's address, used in setup and invite links |
+| `TIMEZONE` | timezone for times typed into forms, e.g. `Europe/Amsterdam` |
 
 ## Develop
 
