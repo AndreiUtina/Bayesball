@@ -7,7 +7,7 @@ from itertools import combinations, permutations
 import numpy as np
 from scipy.stats import norm
 
-from app.rating.margin import GameSettings, Rating, Side, predict_margin
+from app.rating.margin import GameSettings, Rating, Seat, Side, predict_margin
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,31 @@ def predict(
         margin_sd=sd,
         score=expected_score(m, settings.points_to_win),
     )
+
+
+def arrangements(side: Side) -> list[tuple[Seat, ...]]:
+    """Every way the team's players can share its roles, starting with the given one."""
+    players = [player for player, _ in side]
+    options: list[tuple[Seat, ...]] = []
+    for roles in permutations([role for _, role in side]):
+        option = tuple(zip(players, roles, strict=True))
+        if option not in options:
+            options.append(option)
+    return options
+
+
+def role_options(
+    settings: GameSettings, ratings: Mapping[Hashable, Rating], side_a: Side, side_b: Side
+) -> list[list[Prediction]]:
+    """Predictions for every role arrangement of two fixed teams.
+
+    result[i][j] uses Team A's i-th and Team B's j-th arrangement (see `arrangements`), so
+    result[0][0] is the matchup as given.
+    """
+    return [
+        [predict(settings, ratings, a, b) for b in arrangements(side_b)]
+        for a in arrangements(side_a)
+    ]
 
 
 def balance(
