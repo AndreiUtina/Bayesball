@@ -1,32 +1,59 @@
-"""Website pages (PLAN.md §7): leaderboard, add player, record game. Logins come in Phase 5."""
+"""Website pages (PLAN.md §7). Logins come in Phase 5."""
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import numpy as np
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, col, select
+from sqlmodel import Session, col, func, select
 
 from app.config import TIMEZONE
 from app.db import get_session
 from app.models import Game, GameParticipant, GameType, Player, PlayerRating
 from app.rating.margin import Seat, role_weights
+from app.rating.predict import Prediction, arrangements, balance, predict, role_options
 from app.ratings import (
     PROVISIONAL_GAMES,
     RANKING_K,
     RuleError,
     add_player,
+    check_match,
+    check_players,
+    current_ratings,
     record_game,
     to_rating,
 )
+from app.stats import (
+    GameView,
+    game_views,
+    games_query,
+    pair_records,
+    player_games,
+    rating_change,
+    rating_chart,
+)
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+
+def local_time(dt: datetime) -> str:
+    """E.g. "Sun 4 Oct, 20:15" in the TIMEZONE setting; the year only if it isn't this year."""
+    zone = ZoneInfo(TIMEZONE)
+    dt = (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(zone)
+    year = "" if dt.year == datetime.now(zone).year else f" {dt.year}"
+    return f"{dt:%a} {dt.day} {dt:%b}{year}, {dt:%H:%M}"
+
+
+templates.env.filters["when"] = local_time
+
 router = APIRouter(include_in_schema=False)
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -53,6 +80,12 @@ def pick_game_type(session: Session, game_type_id: int | None) -> GameType:
     return game_type
 
 
+def active_players(session: Session) -> list[Player]:
+    return list(
+        session.exec(select(Player).where(col(Player.active).is_(True)).order_by(col(Player.name)))
+    )
+
+
 def to_int(value: str, what: str) -> int:
     try:
         return int(value)
@@ -66,6 +99,7 @@ def to_int(value: str, what: str) -> int:
 @dataclass(frozen=True)
 class BoardRow:
     rank: int
+    player_id: int
     name: str
     score: float  # mu − k·sigma, what the table is sorted by
     mu: float
@@ -102,8 +136,7 @@ def last_changes(session: Session, game_type: GameType, weights: np.ndarray) -> 
     changes: dict[int, float] = {}
     for part in parts:
         if part.player_id not in changes and part.mu_after is not None:
-            delta = np.array(part.mu_after) - np.array(part.mu_before)
-            changes[part.player_id] = float(weights @ delta)
+            changes[part.player_id] = rating_change(part, weights)
     return changes
 
 
@@ -124,6 +157,7 @@ def leaderboard_rows(session: Session, game_type: GameType, role: str | None) ->
     return [
         BoardRow(
             rank=i,
+            player_id=player.id,
             name=player.name,
             score=score,
             mu=mu,
@@ -162,8 +196,8 @@ def games_result(session: Session, games: list[Game], game_type: GameType) -> Ga
         line = headline(game, names)
         headlines.append(f"Game {n}: {line}" if len(games) > 1 else line)
         for part in game.participants:
-            delta = np.array(part.mu_after) - np.array(part.mu_before)
-            changes[part.player_id] = changes.get(part.player_id, 0.0) + float(weights @ delta)
+            change = rating_change(part, weights)
+            changes[part.player_id] = changes.get(part.player_id, 0.0) + change
             roles.setdefault(part.player_id, set()).add(part.role)
     seats = [
         SeatResult(names[p], next(iter(roles[p])) if len(roles[p]) == 1 else None, change)
@@ -302,8 +336,27 @@ def team_formats(game_type: GameType) -> list[str]:
     return ["1v1", f"{n}v{n}"] if n > 1 else ["1v1"]
 
 
+def pick_format(game_type: GameType, fmt: str | None) -> str:
+    formats = team_formats(game_type)
+    return fmt if fmt in formats else formats[-1]  # teams by default: foosball is mainly 2v2
+
+
 def seat_roles(game_type: GameType, fmt: str) -> list[str | None]:
     return [None] if fmt == "1v1" else list(game_type.roles)
+
+
+def matchup_url(
+    path: str, game_type: GameType, side_a: Sequence[Seat], side_b: Sequence[Seat]
+) -> str:
+    """A link to /predict or /games/new with these teams filled in."""
+    fmt = "1v1" if len(side_a) == 1 else team_formats(game_type)[-1]
+    query = {
+        "game_type_id": game_type.id,
+        "format": fmt,
+        "a": [p for p, _ in side_a],
+        "b": [p for p, _ in side_b],
+    }
+    return f"{path}?{urlencode(query, doseq=True)}"
 
 
 def game_form(
@@ -314,9 +367,6 @@ def game_form(
     values: dict[str, Any],
     error: str | None = None,
 ) -> HTMLResponse:
-    players = session.exec(
-        select(Player).where(col(Player.active).is_(True)).order_by(col(Player.name))
-    ).all()
     roles = seat_roles(game_type, fmt)
     return render(
         request,
@@ -329,7 +379,7 @@ def game_form(
         formats=team_formats(game_type),
         seat_roles=roles,
         swappable=len(roles) == 2,
-        players=players,
+        players=active_players(session),
         values={"a": [], "b": [], "games": [{"row": "0", "score": ""}], **values},
         error=error,
     )
@@ -372,11 +422,12 @@ def new_game(
     session: SessionDep,
     game_type_id: int | None = None,
     fmt: Annotated[str | None, Query(alias="format")] = None,
+    a: Annotated[list[str] | None, Query()] = None,  # prefill teams, e.g. from /predict
+    b: Annotated[list[str] | None, Query()] = None,
 ):
     game_type = pick_game_type(session, game_type_id)
-    formats = team_formats(game_type)
-    fmt = fmt if fmt in formats else formats[-1]  # teams by default: foosball is mainly 2v2
-    return game_form(request, session, game_type, fmt, {})
+    fmt = pick_format(game_type, fmt)
+    return game_form(request, session, game_type, fmt, {"a": a or [], "b": b or []})
 
 
 @router.post("/games/new", response_class=HTMLResponse)
@@ -396,8 +447,7 @@ def create_games(
 ) -> Response:
     """Record one or more games between the same two teams, in the order they were played."""
     game_type = pick_game_type(session, game_type_id)
-    formats = team_formats(game_type)
-    fmt = fmt if fmt in formats else formats[-1]
+    fmt = pick_format(game_type, fmt)
     rows, scores = row or [], score or []
     swapped_a, swapped_b = set(swap_a or []), set(swap_b or [])
     values = {
@@ -439,3 +489,277 @@ def create_games(
         return game_form(request, session, game_type, fmt, values, str(e))
     ids = "".join(f"&game={g.id}" for g in games)
     return RedirectResponse(f"/?game_type_id={game_type.id}{ids}", status_code=303)
+
+
+# --- Predict -----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MatchupView:
+    team_a: str  # e.g. "ann & bob"
+    team_b: str
+    prediction: Prediction
+    low: float  # 90% range of the goal difference (Team A − Team B)
+    high: float
+    provisional: bool  # someone has few games, so the prediction is rough
+    rows: list[list[str]]  # Team A's role arrangements, as "name: role" lines
+    cols: list[list[str]]  # Team B's
+    grid: list[list[float]]  # P(Team A wins) for [Team A arrangement][Team B arrangement]
+    advice: list[str]  # which arrangement suits each team best
+    record_url: str
+
+
+def arrangement_lines(option: Sequence[Seat], names: dict[int, str]) -> list[str]:
+    return [f"{names[p]}: {role}" for p, role in option]
+
+
+def role_advice(team: str, option: Sequence[Seat], gain: float, names: dict[int, str]) -> str:
+    """What a team gains (in expected goal difference) from its best role arrangement."""
+    if gain < 0.05:
+        return f"{team}: the roles as picked are their best choice."
+    if gain < 0.25:
+        return f"{team}: swapping roles makes almost no difference."
+    best = " and ".join(f"{names[p]} in {role}" for p, role in option)
+    return f"{team}: about {gain:.1f} goals stronger with {best}."
+
+
+def matchup_view(
+    session: Session, game_type: GameType, side_a: list[Seat], side_b: list[Seat]
+) -> MatchupView:
+    settings = game_type.settings()
+    names = dict(session.exec(select(Player.id, Player.name)).all())
+    ratings = current_ratings(session, game_type)
+    pred = predict(settings, ratings, side_a, side_b)
+    half = 1.645 * pred.margin_sd
+    low, high = pred.expected_margin - half, pred.expected_margin + half
+    if game_type.points_to_win:
+        cap = game_type.points_to_win
+        low, high = max(low, -cap), min(high, cap)
+
+    games_played = dict(
+        session.exec(
+            select(PlayerRating.player_id, PlayerRating.games_played).where(
+                PlayerRating.game_type_id == game_type.id
+            )
+        ).all()
+    )
+    seats = [*side_a, *side_b]
+    options_a, options_b = arrangements(side_a), arrangements(side_b)
+    grid = role_options(settings, ratings, side_a, side_b)
+    margins_a = [row[0].expected_margin for row in grid]  # Team B as picked
+    margins_b = [-p.expected_margin for p in grid[0]]  # Team A as picked
+    best_a = int(np.argmax(margins_a))
+    best_b = int(np.argmax(margins_b))
+    advice = []
+    if len(options_a) > 1:
+        gain_a = margins_a[best_a] - margins_a[0]
+        advice.append(role_advice("Team A", options_a[best_a], gain_a, names))
+        gain_b = margins_b[best_b] - margins_b[0]
+        advice.append(role_advice("Team B", options_b[best_b], gain_b, names))
+
+    return MatchupView(
+        team_a=" & ".join(names[p] for p, _ in side_a),
+        team_b=" & ".join(names[p] for p, _ in side_b),
+        prediction=pred,
+        low=low,
+        high=high,
+        provisional=any(games_played.get(p, 0) < PROVISIONAL_GAMES for p, _ in seats),
+        rows=[arrangement_lines(o, names) for o in options_a],
+        cols=[arrangement_lines(o, names) for o in options_b],
+        grid=[[p.p_a for p in row] for row in grid],
+        advice=advice,
+        record_url=matchup_url("/games/new", game_type, side_a, side_b),
+    )
+
+
+@router.get("/predict", response_class=HTMLResponse)
+def predict_page(
+    request: Request,
+    session: SessionDep,
+    game_type_id: int | None = None,
+    fmt: Annotated[str | None, Query(alias="format")] = None,
+    a: Annotated[list[str] | None, Query()] = None,  # Team A's player ids, in role order
+    b: Annotated[list[str] | None, Query()] = None,
+) -> HTMLResponse:
+    game_type = pick_game_type(session, game_type_id)
+    fmt = pick_format(game_type, fmt)
+    roles = seat_roles(game_type, fmt)
+    matchup, error = None, None
+    if a or b:
+        try:
+            side_a = parse_side(a or [], roles, "Team A")
+            side_b = parse_side(b or [], roles, "Team B")
+            check_match(session, game_type.settings(), side_a, side_b)
+            matchup = matchup_view(session, game_type, side_a, side_b)
+        except RuleError as e:
+            error = str(e)
+    return render(
+        request,
+        session,
+        "predict.html",
+        status=422 if error else 200,
+        page="predict",
+        game_type=game_type,
+        fmt=fmt,
+        formats=team_formats(game_type),
+        seat_roles=roles,
+        players=active_players(session),
+        values={"a": a or [], "b": b or []},
+        matchup=matchup,
+        error=error,
+    )
+
+
+# --- Balance teams -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OptionView:
+    side_a: list[tuple[str, str | None]]  # (name, role)
+    side_b: list[tuple[str, str | None]]
+    p_a: float
+    p_b: float
+    score: tuple[int, int] | None
+    predict_url: str
+    record_url: str
+
+
+@router.get("/balance", response_class=HTMLResponse)
+def balance_page(
+    request: Request,
+    session: SessionDep,
+    game_type_id: int | None = None,
+    p: Annotated[list[str] | None, Query()] = None,  # ids of the players at the table
+) -> HTMLResponse:
+    game_type = pick_game_type(session, game_type_id)
+    sizes = sorted({2, 2 * len(game_type.roles)})
+    options, error = None, None
+    if p is not None:
+        try:
+            ids = list(dict.fromkeys(to_int(i, "a player id") for i in p))
+            if len(ids) not in sizes:
+                counts = " or ".join(str(n) for n in sizes)
+                raise RuleError(f"pick {counts} players (you picked {len(ids)})")
+            check_players(session, ids)
+            names = dict(session.exec(select(Player.id, Player.name)).all())
+            matchups = balance(game_type.settings(), current_ratings(session, game_type), ids)
+            options = [
+                OptionView(
+                    side_a=[(names[pid], role) for pid, role in m.side_a],
+                    side_b=[(names[pid], role) for pid, role in m.side_b],
+                    p_a=m.prediction.p_a,
+                    p_b=m.prediction.p_b,
+                    score=m.prediction.score,
+                    predict_url=matchup_url("/predict", game_type, m.side_a, m.side_b),
+                    record_url=matchup_url("/games/new", game_type, m.side_a, m.side_b),
+                )
+                for m in matchups
+            ]
+        except RuleError as e:
+            error = str(e)
+    return render(
+        request,
+        session,
+        "balance.html",
+        status=422 if error else 200,
+        page="predict",
+        game_type=game_type,
+        sizes=sizes,
+        players=active_players(session),
+        picked=set(p or []),
+        options=options,
+        error=error,
+    )
+
+
+# --- Player profile ----------------------------------------------------------------------------
+
+RECENT_GAMES = 10
+
+
+@router.get("/players/{player_id:int}", response_class=HTMLResponse)
+def player_page(
+    request: Request, session: SessionDep, player_id: int, game_type_id: int | None = None
+) -> HTMLResponse:
+    game_type = pick_game_type(session, game_type_id)
+    player = session.get(Player, player_id)
+    row = session.exec(
+        select(PlayerRating).where(
+            PlayerRating.player_id == player_id, PlayerRating.game_type_id == game_type.id
+        )
+    ).first()
+    if player is None or row is None:
+        raise HTTPException(404, "player not found")
+
+    rating = to_rating(row, game_type.settings())
+    keys: list[str | None] = [None, *game_type.roles] if len(game_type.roles) > 1 else [None]
+    skills = [(key.capitalize() if key else "Overall", *rating.skill(key)) for key in keys]
+    board = leaderboard_rows(session, game_type, None)
+    rank = next((r.rank for r in board if r.player_id == player_id), None)
+
+    games = player_games(session, game_type, player_id)
+    views = game_views(session, games, game_type)
+    teammates, opponents = pair_records(views, player_id)
+    chart = None
+    if games:
+        chart = rating_chart(games, player_id, game_type)
+        chart["titles"] = ["Starting rating"] + [
+            f"{local_time(v.played_at)} · {v.result_for(player_id)} "
+            + "–".join(map(str, v.score_for(player_id)))
+            for v in views
+        ]
+    return render(
+        request,
+        session,
+        "player.html",
+        page="profile",
+        game_type=game_type,
+        player=player,
+        rating=row,
+        skills=skills,
+        rank=rank,
+        board_size=len(board),
+        provisional=row.games_played < PROVISIONAL_GAMES,
+        chart=chart,
+        recent=views[::-1][:RECENT_GAMES],
+        more_games=len(views) > RECENT_GAMES,
+        teammates=teammates,
+        opponents=opponents,
+    )
+
+
+# --- Game history ------------------------------------------------------------------------------
+
+GAMES_PER_PAGE = 50
+
+
+@router.get("/games", response_class=HTMLResponse)
+def history_page(
+    request: Request,
+    session: SessionDep,
+    game_type_id: int | None = None,
+    player: str = "",  # a player id, or empty for everyone
+    page: Annotated[int, Query(ge=1)] = 1,
+) -> HTMLResponse:
+    game_type = pick_game_type(session, game_type_id)
+    player_id = int(player) if player.isdigit() else None
+    query = games_query(game_type, player_id)
+    total = session.exec(select(func.count()).select_from(query.subquery())).one()
+    games = session.exec(query.offset((page - 1) * GAMES_PER_PAGE).limit(GAMES_PER_PAGE)).all()
+    views: list[GameView] = game_views(session, games, game_type)
+    players = session.exec(select(Player).order_by(col(Player.name))).all()
+    return render(
+        request,
+        session,
+        "games.html",
+        page="history",
+        game_type=game_type,
+        games=views,
+        players=players,
+        player_id=player_id,
+        total=total,
+        first=(page - 1) * GAMES_PER_PAGE + 1,
+        page_num=page,
+        has_newer=page > 1,
+        has_older=page * GAMES_PER_PAGE < total,
+    )
