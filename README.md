@@ -7,6 +7,10 @@
 Bayesian ratings and match predictions for foosball (1v1 and 2v2 with attack/defence roles),
 built to support other games too. See [PLAN.md](PLAN.md) for the full design.
 
+**Live site: [bayesball.onrender.com](https://bayesball.onrender.com)**. Anyone can view the
+leaderboard, predictions and game history; admins log in to record games. It runs on Render's
+free plan, so after 15 minutes without visitors the first page takes about a minute to load.
+
 ## Run locally
 
 Requires [uv](https://docs.astral.sh/uv/).
