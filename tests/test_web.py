@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 
@@ -239,3 +241,80 @@ def test_history(client, four, monkeypatch):
 
 def test_leaderboard_links_to_profiles(client, four):
     assert 'href="/players/1?game_type_id=1">ann</a>' in client.get("/").text
+
+
+# --- Phase 5: editing (admins) -----------------------------------------------------------------
+
+
+def edit_form(a, b, score, **extra):
+    return {"a": a, "b": b, "score": score, **extra}
+
+
+def test_edit_game_recomputes(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4"))
+    page = client.post("/games/1/edit", data=edit_form(["1", "2"], ["3", "4"], "4-10")).text
+    assert "Game saved" in page
+    ann = client.get("/api/players/1").json()["ratings"][0]
+    assert ann["overall"]["mu"] < 0 and (ann["wins"], ann["losses"]) == (0, 1)
+
+
+def test_edit_form_shows_the_game(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4", "7-10", swap_a=["1"]))
+    page = client.get("/games/2/edit").text  # Team A swapped: bob attack, ann defence
+    attack, defence = page.index("Attack"), page.index("Defence")
+    assert attack < page.index('<option value="2" selected>') < defence
+    assert defence < page.index('<option value="1" selected>')
+    assert 'value="7-10"' in page
+
+
+def test_editing_keeps_the_exact_time(client, four):
+    data = game_form(["1", "2"], ["3", "4"], "10-4", "10-6", played_at="2026-05-01T20:30")
+    client.post("/games/new", data=data)
+    before = {g["id"]: g["played_at"] for g in client.get("/api/games").json()}
+    form = client.get("/games/1/edit").text
+    shown = re.search(r'name="played_at" value="([^"]+)"', form)[1]
+    client.post("/games/1/edit", data=edit_form(["1", "2"], ["3", "4"], "10-2", played_at=shown))
+    after = {g["id"]: g["played_at"] for g in client.get("/api/games").json()}
+    assert after == before
+
+
+def test_edit_game_errors(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4"))
+    response = client.post("/games/1/edit", data=edit_form(["1", "2"], ["3", "4"], "10-10"))
+    assert response.status_code == 422 and "winner needs exactly 10" in response.text
+    assert 'value="10-10"' in response.text
+    assert client.get("/api/games/1").json()["score_b"] == 4
+
+
+def test_delete_game(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4"))
+    page = client.post("/games/1/delete").text
+    assert "Game deleted" in page
+    assert client.get("/api/games").json() == []
+    assert client.get("/api/players/1").json()["ratings"][0]["overall"]["mu"] == 0
+
+
+def test_edit_player(client, four):
+    form = client.get("/players/1/edit").text
+    assert "Edit ann" in form and 'name="active" role="switch" checked' in form
+    data = {"game_type_id": 1, "name": "anna", "level": "0", "certainty": "low"}
+    page = client.post("/players/1/edit", data=data).text  # "active" unticked
+    assert "Saved." in page and "<h1>anna</h1>" in page and "inactive" in page
+    assert ">anna</a>" not in client.get("/").text  # hidden from the leaderboard
+
+
+def test_edit_player_prior(client, four):
+    client.post("/games/new", data=game_form(["1", "2"], ["3", "4"], "10-4"))
+    before = client.get("/api/players/1").json()["ratings"][0]["overall"]["mu"]
+    data = {"game_type_id": 1, "name": "ann", "active": "on", "level": "2", "certainty": "high"}
+    client.post("/players/1/edit", data=data)
+    after = client.get("/api/players/1").json()["ratings"][0]
+    assert after["overall"]["mu"] > before + 1 and after["prior"]["level"] == 2
+
+
+def test_editing_a_name_keeps_an_unusual_prior(client):
+    body = {"name": "eve", "game_type_id": 1, "prior": {"level": 0.5}}
+    player_id = client.post("/api/players", json=body).json()["id"]
+    data = {"game_type_id": 1, "name": "eva", "active": "on", "level": "0", "certainty": "low"}
+    client.post(f"/players/{player_id}/edit", data=data)
+    assert client.get(f"/api/players/{player_id}").json()["ratings"][0]["prior"]["level"] == 0.5
