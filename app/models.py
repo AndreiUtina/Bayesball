@@ -1,4 +1,4 @@
-"""Database tables (PLAN.md §6). Users and invites come with logins in Phase 5."""
+"""Database tables (PLAN.md §6)."""
 
 from dataclasses import asdict, fields
 from datetime import UTC, datetime
@@ -37,11 +37,40 @@ class GameType(SQLModel, table=True):
         return GameSettings(**{**values, "roles": tuple(self.roles)})
 
 
+class User(SQLModel, table=True):
+    """Someone who can log in: the owner or an admin (PLAN.md §5)."""
+
+    __tablename__ = "users"  # "user" is a reserved word in Postgres
+
+    id: int | None = Field(default=None, primary_key=True)
+    username: str = Field(unique=True)
+    password_hash: str
+    role: str = "admin"  # "owner" or "admin"
+    active: bool = True  # False once removed; kept for the audit trail
+    session_version: int = 0  # bumped to log the user out everywhere
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Invite(SQLModel, table=True):
+    """A single-use link to create an account. Only a hash of the token is stored."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    token_hash: str = Field(unique=True)
+    role: str = "admin"  # "owner" for the first-start setup link
+    created_by: int | None = Field(default=None, foreign_key="users.id")
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime
+    used_by: int | None = Field(default=None, foreign_key="users.id")
+    used_at: datetime | None = None
+
+
 class Player(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(unique=True)
     active: bool = True
     created_at: datetime = Field(default_factory=utcnow)
+    created_by: int | None = Field(default=None, foreign_key="users.id")
+    updated_by: int | None = Field(default=None, foreign_key="users.id")
 
 
 class PlayerRating(SQLModel, table=True):
@@ -74,6 +103,8 @@ class Game(SQLModel, table=True):
     notes: str = ""
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    created_by: int | None = Field(default=None, foreign_key="users.id")
+    updated_by: int | None = Field(default=None, foreign_key="users.id")
 
     participants: list["GameParticipant"] = Relationship(
         back_populates="game",

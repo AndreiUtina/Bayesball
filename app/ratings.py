@@ -114,18 +114,60 @@ def add_player(
     name: str,
     game_type: GameType | None = None,
     prior_inputs: dict[str, Any] | None = None,
+    user_id: int | None = None,
 ) -> Player:
     """A new player with a rating for every game type; `prior_inputs` apply to `game_type`."""
     if not name:
         raise RuleError("the player needs a name")
     check_name_free(session, name)
-    player = Player(name=name)
+    player = Player(name=name, created_by=user_id, updated_by=user_id)
     session.add(player)
     session.flush()
     for gt in session.exec(select(GameType)):
         inputs = prior_inputs if game_type is not None and gt.id == game_type.id else None
         session.add(new_rating_row(player.id, gt, inputs))
     return player
+
+
+def update_player(
+    session: Session,
+    player: Player,
+    *,
+    name: str | None = None,
+    active: bool | None = None,
+    game_type: GameType | None = None,
+    prior_inputs: dict[str, Any] | None = None,
+    user_id: int | None = None,
+) -> None:
+    """Rename and/or (de)activate a player, or change their prior for `game_type`.
+
+    A new prior replays that game type's history, since every rating starts from the prior.
+    """
+    if name is not None:
+        if not name:
+            raise RuleError("the player needs a name")
+        check_name_free(session, name, player.id)
+        player.name = name
+    if active is not None:
+        player.active = active
+    player.updated_by = user_id
+    session.add(player)
+
+    if prior_inputs is not None:
+        if game_type is None:
+            raise RuleError("say which game type the prior is for (game_type_id)")
+        row = session.exec(
+            select(PlayerRating).where(
+                PlayerRating.player_id == player.id, PlayerRating.game_type_id == game_type.id
+            )
+        ).first()
+        new_row = new_rating_row(player.id, game_type, prior_inputs)  # also checks the inputs
+        if row is None:
+            session.add(new_row)
+        else:
+            row.prior = new_row.prior
+            session.add(row)
+        recompute(session, game_type)
 
 
 def record_game(
@@ -137,20 +179,59 @@ def record_game(
     score_b: int,
     played_at: datetime | None = None,
     notes: str = "",
+    user_id: int | None = None,
 ) -> Game:
     check_game(session, game_type, side_a, side_b, score_a, score_b)
+    now = utcnow()
     game = Game(
         game_type_id=game_type.id,
-        played_at=as_utc(played_at) if played_at else utcnow(),
+        played_at=as_utc(played_at) if played_at else now,
+        created_at=now,
+        updated_at=now,  # equal to created_at until the game is edited
         score_a=score_a,
         score_b=score_b,
         outcome=outcome(score_a, score_b),
         notes=notes,
         participants=make_participants(side_a, side_b),
+        created_by=user_id,
+        updated_by=user_id,
     )
     session.add(game)
     recompute(session, game_type)
     return game
+
+
+def update_game(
+    session: Session,
+    game_type: GameType,
+    game: Game,
+    side_a: Sequence[Seat],
+    side_b: Sequence[Seat],
+    score_a: int,
+    score_b: int,
+    played_at: datetime | None = None,
+    notes: str | None = None,
+    user_id: int | None = None,
+) -> None:
+    """Correct a recorded game, then replay the history so every later rating is right too."""
+    check_game(session, game_type, side_a, side_b, score_a, score_b)
+    if (list(side_a), list(side_b)) != sides(game):
+        game.participants = make_participants(side_a, side_b)
+    game.score_a, game.score_b, game.outcome = score_a, score_b, outcome(score_a, score_b)
+    if played_at is not None:
+        game.played_at = as_utc(played_at)
+    if notes is not None:
+        game.notes = notes
+    game.updated_at = utcnow()
+    game.updated_by = user_id
+    session.add(game)
+    recompute(session, game_type)
+
+
+def delete_game(session: Session, game_type: GameType, game: Game) -> None:
+    session.delete(game)
+    session.flush()
+    recompute(session, game_type)
 
 
 # --- Ratings -----------------------------------------------------------------------------------
