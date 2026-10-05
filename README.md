@@ -39,3 +39,38 @@ uv run pytest            # tests
 uv run ruff check .      # lint
 uv run ruff format .     # format
 ```
+
+To run the tests against Postgres too (as CI does), set `TEST_DATABASE_URL` to an empty test
+database; it is wiped by every test.
+
+### Changing the database tables
+
+The app updates the database itself at startup, using the migrations in `migrations/versions/`.
+After changing `app/models.py`, create a migration, check it, and commit it with the change:
+
+```sh
+uv run alembic revision --autogenerate -m "add a location to games"
+```
+
+A test fails if the models and the migrations don't match.
+
+## Deploy (Render + Neon)
+
+Every push to `main` runs CI (tests on SQLite and Postgres, plus a Docker build). When CI
+passes, Render deploys the new version automatically (`autoDeployTrigger: checksPass` in
+`render.yaml`). If the new version doesn't start, the old one keeps running. Render's
+**Rollback** button returns to any earlier deploy (a migration that already ran is not undone).
+
+First-time setup:
+
+1. **Neon**: create a project in the Frankfurt region and copy its **direct** connection string
+   (Connect → connection pooling off).
+2. **Render**: New → **Blueprint** → pick this repository. Paste the Neon connection string when
+   it asks for `DATABASE_URL` (Render creates `SECRET_KEY` itself), then deploy.
+3. When it is live, open the service's **Logs**, find `No owner account yet. Create it here: …`
+   and open that link to create your owner account. The link works once, for one day; every
+   restart before then logs a new one.
+4. Invite other admins from the **Admins** page.
+
+To try the online database from your laptop, put `DATABASE_URL=…` in `.env` (never committed)
+and run `uv run --env-file .env uvicorn app.main:app`.
