@@ -34,3 +34,9 @@ def test_fingerprint_follows_the_contents(tmp_path, monkeypatch):
     file.write_text("a { color: red }")
     os.utime(file, ns=(file.stat().st_atime_ns, file.stat().st_mtime_ns + 1_000_000))
     assert web.static_url("style.css") != first
+
+
+def test_header_links_to_the_github_project(visitor):
+    page = visitor.get("/").text
+    assert 'href="https://github.com/AndreiUtina/Bayesball"' in page
+    assert 'aria-label="Bayesball on GitHub"' in page and 'rel="noopener"' in page
