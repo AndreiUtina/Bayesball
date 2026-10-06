@@ -16,8 +16,11 @@
   {% if editing %}
   <label>
     <input type="checkbox" name="active" role="switch" {% if values.active %}checked{% endif %}>
-    Active <small class="muted">(inactive players are hidden from the leaderboard and team pickers; their games stay)</small>
+    Active
   </label>
+  <p class="field-help"><small class="muted">
+    Inactive players are hidden from the leaderboard and team pickers; their games stay.
+  </small></p>
   <p><small class="muted">
     Changing the starting belief below recalculates this player's ratings from their first game.
   </small></p>

@@ -43,6 +43,7 @@ header nav, header nav ul { flex-wrap: wrap; }
 .board td, .board th { white-space: nowrap; }
 
 .choices label { display: inline-flex; margin-right: 1.25rem; }
+.field-help { margin-top: 0.5rem; }  /* a note on its own line under a switch or checkbox */
 
 .game-row { border-bottom: 1px solid var(--pico-muted-border-color); margin-bottom: 1rem; }
 .game-row:last-child { border-bottom: 0; }
