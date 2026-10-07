@@ -1,7 +1,7 @@
 # Bayesball
 
 <p align="center">
-  <img src="app/static/logo.jpg" alt="Bayesball logo" width="420">
+  <img src="app/static/logo.jpg" alt="Bayesball logo: a baseball flying under Bayes' theorem" width="360">
 </p>
 
 Bayesian ratings and match predictions for foosball (1v1 and 2v2 with attack/defence roles),
@@ -81,5 +81,5 @@ and run `uv run --env-file .env uvicorn app.main:app`.
 
 ## License
 
-[MIT](LICENSE). The logo was made with Google's AI image generator, after the well-known
-portrait of Thomas Bayes.
+[MIT](LICENSE). The logo was generated entirely by Google's Gemini AI. It shows Bayes' theorem,
+P(A|B) = P(B|A) · P(A) / P(B): the rule behind every rating update on the site.
