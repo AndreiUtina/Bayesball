@@ -1,6 +1,15 @@
+from dataclasses import replace
+
 import pytest
 
-from app.explain import HEIGHT, WIDTH, margin_figure, worked_example
+from app.explain import (
+    HEIGHT,
+    WIDTH,
+    common_questions,
+    half_life,
+    margin_figure,
+    worked_example,
+)
 from app.models import GameType
 from app.rating.margin import FOOSBALL
 
@@ -55,3 +64,24 @@ def test_how_it_works_uses_the_live_settings(client):
     after = client.get("/how-it-works").text
     assert "β = 2.5 goals" in before and "β = 1.0 goals" in after
     assert "+1.50" in before and "+1.50" not in after  # less luck: the same game says more
+
+
+def test_common_questions():
+    faq = common_questions(GameType.from_settings("Foosball", FOOSBALL))
+    changes = [change for _, change in faq["by_score"]]
+    assert changes[:4] == sorted(changes[:4]) and changes[0] > 0  # bigger wins move it more
+    assert changes[-1] < 0  # a loss
+    by_opponent = faq["by_opponent"]
+    assert [c for *_, c in by_opponent] == sorted(c for *_, c in by_opponent)
+    weaker = by_opponent[0]  # a 10–8 win against a team 2 goals weaker: exactly as expected
+    assert weaker[1] == pytest.approx(2.0) and weaker[2] == pytest.approx(0.0, abs=1e-9)
+    assert 25 < faq["half_life"] < 50
+    assert half_life(replace(FOOSBALL, tau=0.0)) is None
+    assert half_life(replace(FOOSBALL, tau=0.3)) < faq["half_life"]  # more drift, faster fading
+
+
+def test_common_questions_on_the_page(visitor):
+    page = visitor.get("/how-it-works").text
+    assert 'id="questions"' in page and "Is beating a better team worth more?" in page
+    assert "won 10–2" in page and "lost 8–10" in page
+    assert "Time between games is <strong>not</strong> used yet" in page
