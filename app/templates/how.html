@@ -59,6 +59,7 @@
     <li><a href="#surprise">Winning by less than expected</a></li>
     <li><a href="#predictions">Predictions</a></li>
     <li><a href="#drift">Skills can change</a></li>
+    <li><a href="#questions">Common questions</a></li>
     <li><a href="#limits">Limits</a></li>
   </ol>
 </nav>
@@ -334,8 +335,76 @@
     onwards, in date order.</p>
 </section>
 
+<section id="questions">
+  <h2>10. Common questions</h2>
+  <p><small class="muted">
+    The tables use four "regular" players, Ann &amp; Bob against Cat &amp; Dan, whose skills are
+    each known to about ±{{ "%.0f"|format(faq.sigma) }} goal. They show how much Ann's
+    {{ ex.att }} skill moves.
+  </small></p>
+
+  <h3>How does the score count?</h3>
+  <p>Only the <strong>goal difference</strong> counts, and it's compared with the difference the
+    model expected. The rating moves in proportion to that <strong>surprise</strong>, goal by goal,
+    so a big win moves it much more than a narrow one:</p>
+  <div class="overflow-auto">
+    <table class="faq">
+      <thead><tr><th>Ann &amp; Bob against an equal team</th><th>Ann's {{ ex.att }}</th></tr></thead>
+      <tbody>
+        {% for score, change in faq.by_score %}
+        <tr>
+          <td>{{ "won" if score[0] > score[1] else "lost" }} {{ score[0] }}–{{ score[1] }}</td>
+          <td class="{{ 'up' if change >= 0 else 'down' }}">{{ "%+.2f"|format(change) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p>There is no bonus for winning as such. Winning by less than expected lowers a rating, and
+    losing by less than expected raises it (see <a href="#surprise">section 7</a>).</p>
+
+  <h3>Is beating a better team worth more?</h3>
+  <p>Yes, automatically. Against a stronger team the model expects you to lose, so the same score
+    is a bigger surprise. There is no separate bonus factor: here the result is always a
+    {{ faq.close_win[0] }}–{{ faq.close_win[1] }} win for Ann &amp; Bob.</p>
+  <div class="overflow-auto">
+    <table class="faq">
+      <thead><tr><th>Cat &amp; Dan are…</th><th>Expected difference</th><th>Ann's {{ ex.att }}</th></tr></thead>
+      <tbody>
+        {% for strength, expected, change in faq.by_opponent %}
+        <tr>
+          <td>{% if strength > 0 %}{{ "%.0f"|format(strength) }} goals better{% elif strength < 0 %}{{ "%.0f"|format(-strength) }} goals weaker{% else %}equal{% endif %}</td>
+          <td>{{ "%+.1f"|format(expected) }}</td>
+          <td class="{{ 'up' if change > 0.005 else 'down' if change < -0.005 else '' }}">{{ "%+.2f"|format(change) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p>Beating a weaker team by exactly the expected margin changes nothing: the result told the
+    model nothing new. How big each step is also depends on the uncertainties: new players move
+    faster, and results against little-known opponents count a bit less. In 2v2 both partners get
+    the same surprise, but the less-known partner takes more of the credit or blame.</p>
+
+  <h3>Does it use only recent games, or all of them?</h3>
+  <p><strong>All recorded games</strong>, replayed in date order from each player's starting
+    belief. There is no "last 20 games" window.
+    {% if faq.half_life %}
+    Older games slowly lose weight because skills can drift (<a href="#drift">section 9</a>): for
+    a regular player, a game's influence halves after about
+    <strong>{{ "%.0f"|format(faq.half_life) }}</strong> of that player's later games. A player's
+    first few dozen games count roughly equally.
+    {% else %}
+    Skills are currently set not to drift, so every game counts equally.
+    {% endif %}
+  </p>
+  <p>Time between games is <strong>not</strong> used yet: the drift grows per game played, not
+    per day, so a player who comes back after a long break is rated as confidently as before.
+    Extra uncertainty after long breaks is planned.</p>
+</section>
+
 <section id="limits">
-  <h2>10. Limits</h2>
+  <h2>11. Limits</h2>
   <ul>
     <li>The settings below are educated starting guesses. Once there are about 50 games, they'll
       be tuned to fit the real results.</li>

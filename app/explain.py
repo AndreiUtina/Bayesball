@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.models import GameType
-from app.rating.margin import Rating, Side, prior, update
+from app.rating.margin import GameSettings, Rating, Side, prior, update
 from app.rating.predict import Prediction, predict
 from app.ratings import PROVISIONAL_GAMES, RANKING_K
 from app.web import CERTAINTY, EXPERIENCE, SessionDep, pick_game_type, render
@@ -212,6 +212,63 @@ def worked_example(game_type: GameType) -> dict[str, Any]:
     }
 
 
+# --- Common questions --------------------------------------------------------------------------
+
+REGULAR_SIGMA = 1.0  # the questions use "regular" players, each skill known to about ±1 goal
+
+
+def regulars_game(
+    settings: GameSettings, opponents: float, score: tuple[int, int]
+) -> tuple[float, float]:
+    """Ann & Bob (average regulars) play Cat & Dan (regulars `opponents` goals better).
+
+    Returns (expected goal difference, change in Ann's skill in her role).
+    """
+    att, dfn = settings.roles[0], settings.roles[-1]
+    sd = [REGULAR_SIGMA] * len(settings.roles)
+    ratings = {p: prior(settings, mu=[0.0] * len(sd), sigma=sd) for p in ("Ann", "Bob")}
+    ratings |= {p: prior(settings, mu=[opponents] * len(sd), sigma=sd) for p in ("Cat", "Dan")}
+    side_a: Side = [("Ann", att), ("Bob", dfn)]
+    side_b: Side = [("Cat", att), ("Dan", dfn)]
+    expected = predict(settings, ratings, side_a, side_b).expected_margin
+    after = update(settings, ratings, side_a, side_b, score[0] - score[1])
+    return expected, after["Ann"].skill(att)[0] - ratings["Ann"].skill(att)[0]
+
+
+def half_life(settings: GameSettings) -> float | None:
+    """Roughly after how many later games an old game's influence halves, for a regular player.
+
+    Follows one skill of a player who keeps playing 2v2 with and against equally well-known
+    players, until their uncertainty settles; then each new game keeps (1 − gain/2) of the
+    weight of every older one. None if skills never drift (then all games count equally).
+    """
+    if settings.tau <= 0:
+        return None
+    variance = settings.default_sigma**2
+    for _ in range(10_000):
+        before = variance + settings.tau**2
+        # The four skills in play each count ½; luck adds β².
+        gain = 0.5 * before / (before + settings.beta**2)
+        variance = before - 0.5 * gain * before
+    return math.log(0.5) / math.log(1 - 0.5 * gain)
+
+
+def common_questions(game_type: GameType) -> dict[str, Any]:
+    settings = game_type.settings()
+    win = game_type.points_to_win or 10
+    scores = [(win, win - 1), (win, win - 2), (win, win - 5), (win, win - 8), (win - 2, win)]
+    return {
+        "sigma": REGULAR_SIGMA,
+        "by_score": [(score, regulars_game(settings, 0.0, score)[1]) for score in scores],
+        "by_opponent": [
+            (strength, *regulars_game(settings, strength, (win, win - 2)))
+            for strength in (-2.0, 0.0, 2.0, 4.0)
+        ],
+        "close_win": (win, win - 2),
+        "half_life": half_life(settings),
+    }
+
+
 @router.get("/how-it-works", response_class=HTMLResponse)
 def how_it_works(
     request: Request, session: SessionDep, game_type_id: int | None = None
@@ -232,4 +289,5 @@ def how_it_works(
         experience=[(label, float(level) * settings.skill_scale) for level, label in EXPERIENCE],
         certainty=[(key, f * settings.default_sigma) for key, f in CERTAINTY.items()],
         ex=worked_example(game_type),
+        faq=common_questions(game_type),
     )
