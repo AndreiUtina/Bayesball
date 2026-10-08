@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 
 from app.models import GameType
 from app.rating.margin import GameSettings, Rating, Side, prior, update
-from app.rating.predict import Prediction, predict
+from app.rating.predict import Prediction, predict, winning_margin
 from app.ratings import PROVISIONAL_GAMES, RANKING_K
 from app.web import CERTAINTY, EXPERIENCE, SessionDep, pick_game_type, render
 
@@ -206,6 +206,7 @@ def worked_example(game_type: GameType) -> dict[str, Any]:
         "rematch": rematch,
         "score2": score2,
         "surprise2": score2[0] - score2[1] - rematch.expected_margin,
+        "rematch_lead": winning_margin(rematch.expected_margin, rematch.margin_sd),
         "game2": changes(after1, after2, [("Ann", None), ("Bob", None), ("Cat", None)]),
         "skill_figure": skill_figure(ann_attack.before, ann_attack.after),
         "margin_figure": margin_figure(rematch, team_a, team_b),

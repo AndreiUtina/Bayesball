@@ -316,8 +316,11 @@
     </table>
   </div>
   <ul>
-    <li><strong>Expected score:</strong> the winner has {{ game_type.points_to_win or 10 }}; the loser
-      has {{ game_type.points_to_win or 10 }} minus the expected goal difference, rounded.</li>
+    <li><strong>Expected score:</strong> the typical score <em>if the favourite wins</em>. Even
+      when the expected goal difference is close to zero, the winner of a close game still usually
+      wins by a few goals. So the loser's score is {{ game_type.points_to_win or 10 }} minus the
+      average winning margin over the games the favourite wins (the part of the curve right of
+      zero): {{ "%.1f"|format(ex.rematch_lead) }} goals here.</li>
     <li><strong>Likely range (90%):</strong> m ± 1.645 √v goals, capped at the race to
       {{ game_type.points_to_win or 10 }}.</li>
     <li>Games with new players are predicted closer to 50%, because their wide curves add uncertainty.</li>

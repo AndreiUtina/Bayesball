@@ -17,7 +17,7 @@ class Prediction:
     p_b: float
     expected_margin: float  # score_A − score_B
     margin_sd: float
-    score: tuple[int, int] | None  # expected scoreline (A, B) for race-to games
+    score: tuple[int, int] | None  # typical score (A, B) if the favourite wins (race-to games)
 
 
 @dataclass(frozen=True)
@@ -27,10 +27,22 @@ class Matchup:
     prediction: Prediction
 
 
-def expected_score(margin: float, points_to_win: int | None) -> tuple[int, int] | None:
+def winning_margin(margin: float, sd: float) -> float:
+    """The average goal difference in the games the favourite wins.
+
+    The expected difference of an even game is close to 0, but its winner still wins by a few
+    goals. For a goal difference ~ Normal(|margin|, sd²) this is E[difference | difference > 0].
+    """
+    m = abs(margin)
+    return m + sd * norm.pdf(m / sd) / norm.cdf(m / sd)
+
+
+def expected_score(margin: float, sd: float, points_to_win: int | None) -> tuple[int, int] | None:
+    """The typical final score (A, B) if the favourite wins, for race-to games."""
     if points_to_win is None:
         return None
-    loser = int(np.clip(round(points_to_win - abs(margin)), 0, points_to_win - 1))
+    lead = winning_margin(margin, sd)
+    loser = int(np.clip(round(points_to_win - lead), 0, points_to_win - 1))
     return (points_to_win, loser) if margin >= 0 else (loser, points_to_win)
 
 
@@ -51,7 +63,7 @@ def predict(
         p_b=p_b,
         expected_margin=m,
         margin_sd=sd,
-        score=expected_score(m, settings.points_to_win),
+        score=expected_score(m, sd, settings.points_to_win),
     )
 
 
