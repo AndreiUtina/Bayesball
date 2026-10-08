@@ -54,7 +54,7 @@ def test_how_it_works_page(visitor):
     assert "<h1>How the ratings work</h1>" in page
     assert "P(skill | result)" in page
     assert page.count('<svg viewBox="0 0 480 200"') == 2
-    assert "+1.50" in page and "81%" in page and "10–7" in page  # the live worked example
+    assert "+1.50" in page and "81%" in page and "10–6" in page  # the live worked example
     assert 'href="/how-it-works"' in visitor.get("/").text  # linked from the nav
 
 

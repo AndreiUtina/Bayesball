@@ -1,9 +1,17 @@
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 from app.rating.margin import FOOSBALL, prior
-from app.rating.predict import arrangements, balance, expected_score, predict, role_options
+from app.rating.predict import (
+    arrangements,
+    balance,
+    expected_score,
+    predict,
+    role_options,
+    winning_margin,
+)
 
 S = FOOSBALL
 
@@ -13,7 +21,7 @@ def test_equal_teams_are_a_coin_flip():
     pred = predict(S, ratings, [("a", None)], [("b", None)])
     assert pred.p_a == pytest.approx(0.5)
     assert pred.p_draw == 0
-    assert pred.score == (10, 9)
+    assert pred.score == (10, 7)  # someone still wins, typically by about 3 goals
 
 
 def test_stronger_side_is_favoured_and_swapping_sides_mirrors():
@@ -36,10 +44,25 @@ def test_draws_when_allowed():
 
 
 @pytest.mark.parametrize(
-    ("margin", "score"), [(3.2, (10, 7)), (-2.6, (7, 10)), (0.1, (10, 9)), (14, (10, 0))]
+    ("margin", "sd", "score"),
+    [
+        (0.0, 2.5, (10, 8)),  # an even game: the winner still wins by about 2
+        (0.3, 2.9, (10, 8)),  # a near-even game is no longer shown as 10-9
+        (3.2, 2.5, (10, 6)),
+        (-2.6, 2.5, (7, 10)),  # Team B favoured
+        (14.0, 2.5, (10, 0)),
+    ],
 )
-def test_expected_score(margin, score):
-    assert expected_score(margin, 10) == score
+def test_expected_score(margin, sd, score):
+    assert expected_score(margin, sd, 10) == score
+    assert expected_score(margin, sd, None) is None
+
+
+@pytest.mark.parametrize(("margin", "sd"), [(0.0, 2.5), (1.0, 3.0), (-3.0, 3.4)])
+def test_winning_margin_matches_simulated_games(margin, sd):
+    goal_differences = np.random.default_rng(0).normal(abs(margin), sd, 400_000)
+    wins = goal_differences[goal_differences > 0]
+    assert winning_margin(margin, sd) == pytest.approx(wins.mean(), abs=0.02)
 
 
 def test_balance_four_players():
