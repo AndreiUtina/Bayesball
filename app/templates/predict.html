@@ -4,6 +4,29 @@
 
 {% macro pct(p) %}{{ (p * 100)|round|int }}%{% endmacro %}
 
+{# Small role icons (Lucide "swords" and "shield", ISC licence), drawn in the text colour. #}
+{% macro role_icon(role) %}
+{%- if role == "attack" -%}
+<svg class="role-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" x2="19" y1="19" y2="13"/><line x1="16" x2="20" y1="16" y2="20"/><line x1="19" x2="21" y1="21" y2="19"/><polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/><line x1="5" x2="9" y1="14" y2="18"/><line x1="7" x2="4" y1="17" y2="20"/><line x1="3" x2="5" y1="19" y2="21"/></svg>
+{%- elif role == "defence" -%}
+<svg class="role-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+{%- endif -%}
+{% endmacro %}
+
+{# A team's names, each under the icon of the role they play (1v1 has no roles, so no icons). #}
+{% macro team_names(seats) %}
+<strong class="team-names">
+  {%- for name, role in seats -%}
+  {%- if not loop.first %}<span class="amp">&amp;</span>{% endif -%}
+  <span class="seat-name" {% if role %}title="{{ role|capitalize }}"{% endif %}>
+    {{- role_icon(role) -}}
+    {%- if role %}<span class="visually-hidden">{{ role }}: </span>{% endif -%}
+    <span>{{ name }}</span>
+  </span>
+  {%- endfor -%}
+</strong>
+{% endmacro %}
+
 {# A goal difference (Team A − Team B) in words, e.g. "Cat & Dan by 4". #}
 {% macro goal_diff(x, m) %}
 {%- if x >= 0.5 %}{{ m.team_a }} by {{ "%.0f"|format(x) }}
@@ -33,9 +56,9 @@
 {% set p = matchup.prediction %}
 <article class="prediction">
   <div class="prob-labels">
-    <span><strong>{{ matchup.team_a }}</strong> {{ pct(p.p_a) }}</span>
+    <span class="team-label">{{ team_names(matchup.seats_a) }} <span>{{ pct(p.p_a) }}</span></span>
     {% if p.p_draw > 0.005 %}<span class="muted">draw {{ pct(p.p_draw) }}</span>{% endif %}
-    <span>{{ pct(p.p_b) }} <strong>{{ matchup.team_b }}</strong></span>
+    <span class="team-label"><span>{{ pct(p.p_b) }}</span> {{ team_names(matchup.seats_b) }}</span>
   </div>
   <div class="prob-bar" role="img"
        aria-label="{{ matchup.team_a }} {{ pct(p.p_a) }}, {{ matchup.team_b }} {{ pct(p.p_b) }}">
