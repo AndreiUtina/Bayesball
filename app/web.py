@@ -1,6 +1,7 @@
 """Website pages (PLAN.md §7). Logins come in Phase 5."""
 
 import hashlib
+import random
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -22,7 +23,14 @@ from app.config import TIMEZONE
 from app.db import get_session
 from app.models import Game, GameParticipant, GameType, Player, PlayerRating, User
 from app.rating.margin import Seat, role_weights
-from app.rating.predict import Prediction, arrangements, balance, predict, role_options
+from app.rating.predict import (
+    Prediction,
+    arrangements,
+    balance,
+    fairest_games,
+    predict,
+    role_options,
+)
 from app.ratings import (
     PROVISIONAL_GAMES,
     RANKING_K,
@@ -383,13 +391,22 @@ def seat_roles(game_type: GameType, fmt: str) -> list[str | None]:
 def matchup_url(
     path: str, game_type: GameType, side_a: Sequence[Seat], side_b: Sequence[Seat]
 ) -> str:
-    """A link to /predict or /games/new with these teams filled in."""
+    """A link to /predict or /games/new with these teams filled in.
+
+    The forms take each team's players in role order (attacker first), whatever order the
+    seats come in, so a lineup with roles swapped keeps its roles.
+    """
     fmt = "1v1" if len(side_a) == 1 else team_formats(game_type)[-1]
+
+    def in_role_order(side: Sequence[Seat]) -> list:
+        ordered = sorted(side, key=lambda seat: game_type.roles.index(seat[1]) if seat[1] else 0)
+        return [player for player, _ in ordered]
+
     query = {
         "game_type_id": game_type.id,
         "format": fmt,
-        "a": [p for p, _ in side_a],
-        "b": [p for p, _ in side_b],
+        "a": in_role_order(side_a),
+        "b": in_role_order(side_b),
     }
     return f"{path}?{urlencode(query, doseq=True)}"
 
@@ -547,6 +564,8 @@ class MatchupView:
     grid: list[list[float]]  # P(Team A wins) for [Team A arrangement][Team B arrangement]
     advice: list[str]  # which arrangement suits each team best
     record_url: str
+    balance_url: str | None  # the most even lineup of these same players (team games only)
+    options_url: str | None  # every lineup of these players, on the Balance teams page
 
 
 def arrangement_lines(option: Sequence[Seat], names: dict[int, str]) -> list[str]:
@@ -584,6 +603,7 @@ def matchup_view(
         ).all()
     )
     seats = [*side_a, *side_b]
+    these = urlencode({"game_type_id": game_type.id, "p": [p for p, _ in seats]}, doseq=True)
     options_a, options_b = arrangements(side_a), arrangements(side_b)
     grid = role_options(settings, ratings, side_a, side_b)
     margins_a = [row[0].expected_margin for row in grid]  # Team B as picked
@@ -611,6 +631,8 @@ def matchup_view(
         grid=[[p.p_a for p in row] for row in grid],
         advice=advice,
         record_url=matchup_url("/games/new", game_type, side_a, side_b),
+        balance_url=f"/predict/balanced?{these}" if len(side_a) > 1 else None,
+        options_url=f"/balance?{these}" if len(side_a) > 1 else None,
     )
 
 
@@ -622,6 +644,7 @@ def predict_page(
     fmt: Annotated[str | None, Query(alias="format")] = None,
     a: Annotated[list[str] | None, Query()] = None,  # Team A's player ids, in role order
     b: Annotated[list[str] | None, Query()] = None,
+    pick: str = "",  # "balanced" or "random": how the teams were chosen, if not by hand
 ) -> HTMLResponse:
     game_type = pick_game_type(session, game_type_id)
     fmt = pick_format(game_type, fmt)
@@ -649,7 +672,69 @@ def predict_page(
         values={"a": a or [], "b": b or []},
         matchup=matchup,
         error=error,
+        pick=pick if matchup and pick in ("balanced", "random", "these") else "",
     )
+
+
+def picked_team_size(game_type: GameType, players: int) -> int | None:
+    """Players per team for a picked game: one per role when there are enough, else 1v1."""
+    n = len(game_type.roles)
+    if n > 1 and players >= 2 * n:
+        return n
+    return 1 if players >= 2 else None
+
+
+@router.get("/predict/balanced")
+def balanced_game(
+    session: SessionDep,
+    game_type_id: int | None = None,
+    p: Annotated[list[str] | None, Query()] = None,  # only these players (from a prediction)
+) -> Response:
+    """Predict one of the most even games the active players can make, or, given `p`, the
+    single most even lineup of exactly those players."""
+    game_type = pick_game_type(session, game_type_id)
+    back = RedirectResponse(f"/predict?game_type_id={game_type.id}", status_code=303)
+    ratings = current_ratings(session, game_type)
+    settings = game_type.settings()
+    if p:
+        try:
+            pool = list(dict.fromkeys(to_int(i, "a player id") for i in p))
+            check_players(session, pool)
+        except RuleError:
+            return back
+        size = len(pool) // 2
+        if len(pool) % 2 or size not in (1, len(game_type.roles)):
+            return back
+        side_a, side_b, _ = min(
+            fairest_games(settings, ratings, pool, size, tolerance=0.0), key=lambda g: g[2]
+        )
+        pick = "these"
+    else:
+        pool = [player.id for player in active_players(session)]
+        size = picked_team_size(game_type, len(pool))
+        if size is None:
+            return back
+        # Several games are about equally even: pick one, so asking again gives another.
+        side_a, side_b, _ = random.choice(fairest_games(settings, ratings, pool, size))
+        pick = "balanced"
+    url = matchup_url("/predict", game_type, side_a, side_b)
+    return RedirectResponse(f"{url}&pick={pick}", status_code=303)
+
+
+@router.get("/predict/random")
+def random_game(session: SessionDep, game_type_id: int | None = None) -> Response:
+    """Predict a game between players, in roles, picked completely at random."""
+    game_type = pick_game_type(session, game_type_id)
+    pool = [p.id for p in active_players(session)]
+    size = picked_team_size(game_type, len(pool))
+    if size is None:
+        return RedirectResponse(f"/predict?game_type_id={game_type.id}", status_code=303)
+    chosen = random.sample(pool, 2 * size)
+    roles = [None] if size == 1 else list(game_type.roles)
+    side_a = list(zip(chosen[:size], random.sample(roles, size), strict=True))
+    side_b = list(zip(chosen[size:], random.sample(roles, size), strict=True))
+    url = matchup_url("/predict", game_type, side_a, side_b)
+    return RedirectResponse(f"{url}&pick=random", status_code=303)
 
 
 # --- Balance teams -----------------------------------------------------------------------------
