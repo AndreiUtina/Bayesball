@@ -52,7 +52,15 @@ header nav, header nav ul { flex-wrap: wrap; }
 .row-options button { margin: 0 0 0 auto; padding: 0.25rem 0.75rem; width: auto; }
 
 /* Predict and balance */
-.prob-labels { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 0.4rem; }
+.prob-labels { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; margin-bottom: 0.4rem; }
+.team-label { display: inline-flex; align-items: flex-end; gap: 0.4rem; line-height: 1.2; }
+.team-names { display: inline-flex; align-items: flex-end; gap: 0.35rem; flex-wrap: wrap; }
+.seat-name { display: inline-flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.role-icon { width: 16px; height: 16px; margin-bottom: 0.15rem; color: var(--pico-muted-color); }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
 .prob-bar { display: flex; height: 1.25rem; border-radius: 0.4rem; overflow: hidden; margin-bottom: 1rem; }
 .prob-bar .side-a { background: var(--series-a); }
 .prob-bar .side-b { background: var(--series-b); }
