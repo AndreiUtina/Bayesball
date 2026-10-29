@@ -1,11 +1,15 @@
 {# Pieces shared by the "Record games" and "Predict" pages. #}
 
-{% macro format_tabs(path, game_type, formats, fmt) %}
-{% if formats|length > 1 %}
+{# The 1v1 / 2v2 switch. `extras` adds more links after it: (href, label, is_current). #}
+{% macro format_tabs(path, game_type, formats, fmt, extras=[]) %}
+{% if formats|length > 1 or extras %}
 <nav class="tabs" hx-boost="true">
   <ul>
     {% for f in formats %}
     <li><a href="{{ path }}?game_type_id={{ game_type.id }}&format={{ f }}" {% if f == fmt %}aria-current="page"{% endif %}>{{ f }}</a></li>
+    {% endfor %}
+    {% for href, label, current in extras %}
+    <li><a href="{{ href }}" hx-boost="false" {% if current %}aria-current="page"{% endif %}>{{ label }}</a></li>
     {% endfor %}
   </ul>
 </nav>

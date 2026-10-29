@@ -52,8 +52,31 @@
 </article>
 {% else %}
 
+{% set balanced_url = "/predict/balanced?game_type_id=%d" % game_type.id %}
+{% set random_url = "/predict/random?game_type_id=%d" % game_type.id %}
+
 {% if matchup %}
 {% set p = matchup.prediction %}
+{% if pick == "balanced" %}
+<p class="pick-note">
+  <strong>Balanced game.</strong> Of every way to choose players from your {{ players|length }}
+  active players, split them into teams and give out the roles, this is one of the most even:
+  the expected goal difference is as close to zero as the ratings allow.
+  <a href="{{ balanced_url }}">Another balanced game</a>
+</p>
+{% elif pick == "these" %}
+<p class="pick-note">
+  <strong>Most balanced lineup of these {{ matchup.seats_a|length + matchup.seats_b|length }} players.</strong>
+  Of every way to split them into two teams and give out the roles, this one has the expected
+  goal difference closest to zero.
+  <a href="{{ matchup.options_url }}">See all the options</a>
+</p>
+{% elif pick == "random" %}
+<p class="pick-note">
+  <strong>Random game.</strong> The players and their roles were picked completely at random.
+  <a href="{{ random_url }}">Another random game</a>
+</p>
+{% endif %}
 <article class="prediction">
   <div class="prob-labels">
     <span class="team-label">{{ team_names(matchup.seats_a) }} <span>{{ pct(p.p_a) }}</span></span>
@@ -79,7 +102,12 @@
     {% if matchup.provisional %}Some of these players have played few games, so this is still a rough guess.{% endif %}
     <a href="/how-it-works#predictions">How predictions work</a>
   </small></p>
-  <a href="{{ matchup.record_url }}" role="button" class="secondary">Record this game</a>
+  <div class="actions">
+    <a href="{{ matchup.record_url }}" role="button" class="secondary">Record this game</a>
+    {% if matchup.balance_url and pick != "these" %}
+    <a href="{{ matchup.balance_url }}" role="button" class="secondary outline">Balance these {{ matchup.seats_a|length + matchup.seats_b|length }} players</a>
+    {% endif %}
+  </div>
 </article>
 
 {% if matchup.grid|length > 1 %}
@@ -119,7 +147,10 @@
 <h2>Try another matchup</h2>
 {% endif %}
 
-{{ format_tabs("/predict", game_type, formats, fmt) }}
+{{ format_tabs("/predict", game_type, formats, fmt if pick not in ("balanced", "random") else none, [
+  (balanced_url, "Balanced game", pick == "balanced"),
+  (random_url, "Random game", pick == "random"),
+]) }}
 <form method="get" action="/predict">
   <input type="hidden" name="game_type_id" value="{{ game_type.id }}">
   <input type="hidden" name="format" value="{{ fmt }}">
