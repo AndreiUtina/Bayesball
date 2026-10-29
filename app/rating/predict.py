@@ -92,12 +92,11 @@ def role_options(
     ]
 
 
-def balance(
-    settings: GameSettings, ratings: Mapping[Hashable, Rating], players: Sequence[Hashable]
-) -> list[Matchup]:
-    """Every split of the players into two teams and every role assignment, fairest first.
+def lineups(settings: GameSettings, players: Sequence[Hashable]) -> list[tuple[Side, Side]]:
+    """Every split of the players into two teams and every role assignment.
 
-    For 4 foosball players that is 3 splits × 2 × 2 role choices = 12 matchups.
+    For 4 foosball players that is 3 splits × 2 × 2 role choices = 12 lineups. Mirror images
+    (the same game with the sides swapped) are skipped.
     """
     if len(players) < 2 or len(players) % 2:
         raise ValueError("need an even number of players, at least 2")
@@ -110,14 +109,54 @@ def balance(
         raise ValueError(f"teams of {team_size} don't match roles {settings.roles}")
 
     first, rest = players[0], players[1:]
-    matchups = []
+    result = []
     for mates in combinations(rest, team_size - 1):  # fixing `first` in team A skips mirrors
         team_a = (first, *mates)
         team_b = tuple(p for p in rest if p not in mates)
         for roles_a in role_options:
             for roles_b in role_options:
-                side_a = tuple(zip(team_a, roles_a, strict=True))
-                side_b = tuple(zip(team_b, roles_b, strict=True))
-                pred = predict(settings, ratings, side_a, side_b)
-                matchups.append(Matchup(side_a, side_b, pred))
+                result.append(
+                    (
+                        tuple(zip(team_a, roles_a, strict=True)),
+                        tuple(zip(team_b, roles_b, strict=True)),
+                    )
+                )
+    return result
+
+
+def balance(
+    settings: GameSettings, ratings: Mapping[Hashable, Rating], players: Sequence[Hashable]
+) -> list[Matchup]:
+    """Every lineup of these players (see `lineups`) with its prediction, fairest first."""
+    matchups = [
+        Matchup(side_a, side_b, predict(settings, ratings, side_a, side_b))
+        for side_a, side_b in lineups(settings, players)
+    ]
     return sorted(matchups, key=lambda m: abs(m.prediction.p_a - 0.5))
+
+
+def fairest_games(
+    settings: GameSettings,
+    ratings: Mapping[Hashable, Rating],
+    pool: Sequence[Hashable],
+    team_size: int,
+    tolerance: float = 0.25,
+) -> list[tuple[Side, Side, float]]:
+    """The most even games that can be made from `pool`, with `team_size` players a side.
+
+    Tries every choice of players, split into teams with every role assignment, and returns
+    (side A, side B, |expected goal difference|) for those within `tolerance` goals of the
+    most even one. Only each player's average skill per role is needed, so it stays fast.
+    """
+    share = 1.0 / team_size if settings.team_strength == "mean" else 1.0
+    roles: Sequence[str | None] = settings.roles if team_size > 1 else [None]
+    mean = {(p, role): ratings[p].skill(role)[0] for p in pool for role in roles}
+    games = []
+    for group in combinations(pool, 2 * team_size):
+        for side_a, side_b in lineups(settings, group):
+            difference = share * (sum(mean[s] for s in side_a) - sum(mean[s] for s in side_b))
+            games.append((side_a, side_b, abs(difference)))
+    if not games:
+        return []
+    best = min(gap for *_, gap in games)
+    return [game for game in games if game[2] <= best + tolerance]
