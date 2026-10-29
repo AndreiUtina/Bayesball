@@ -318,3 +318,10 @@ def test_editing_a_name_keeps_an_unusual_prior(client):
     data = {"game_type_id": 1, "name": "eva", "active": "on", "level": "0", "certainty": "low"}
     client.post(f"/players/{player_id}/edit", data=data)
     assert client.get(f"/api/players/{player_id}").json()["ratings"][0]["prior"]["level"] == 0.5
+
+
+def test_predict_shows_role_icons_above_the_names(client, four):
+    page = client.get("/predict?format=2v2&a=1&a=2&b=3&b=4").text
+    assert page.count('class="role-icon"') == 4  # two swords, two shields
+    assert page.index('title="Attack"') < page.index(">ann</span>") < page.index('title="Defence"')
+    assert 'class="role-icon"' not in client.get("/predict?format=1v1&a=1&b=2").text
