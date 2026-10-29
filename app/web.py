@@ -536,6 +536,8 @@ def create_games(
 class MatchupView:
     team_a: str  # e.g. "ann & bob"
     team_b: str
+    seats_a: list[tuple[str, str | None]]  # (name, role), in role order: attacker first
+    seats_b: list[tuple[str, str | None]]
     prediction: Prediction
     low: float  # 90% range of the goal difference (Team A − Team B)
     high: float
@@ -598,6 +600,8 @@ def matchup_view(
     return MatchupView(
         team_a=" & ".join(names[p] for p, _ in side_a),
         team_b=" & ".join(names[p] for p, _ in side_b),
+        seats_a=[(names[p], role) for p, role in side_a],
+        seats_b=[(names[p], role) for p, role in side_b],
         prediction=pred,
         low=low,
         high=high,
