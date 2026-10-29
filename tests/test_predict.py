@@ -1,4 +1,5 @@
 from dataclasses import replace
+from itertools import combinations
 
 import numpy as np
 import pytest
@@ -8,6 +9,8 @@ from app.rating.predict import (
     arrangements,
     balance,
     expected_score,
+    fairest_games,
+    lineups,
     predict,
     role_options,
     winning_margin,
@@ -100,3 +103,28 @@ def test_role_options_for_fixed_teams():
     grid = role_options(S, ratings, wrong_way, [("c", "attack"), ("d", "defence")])
     assert len(grid) == 2 and len(grid[0]) == 2
     assert grid[1][0].p_a > 0.5 > grid[0][0].p_a  # swapping puts both in their strong role
+
+
+def test_lineups_cover_every_split_and_role_once():
+    games = lineups(S, ["a", "b", "c", "d"])
+    assert len(games) == len(set(games)) == 12
+    assert len(lineups(S, ["a", "b"])) == 1
+
+
+def test_fairest_games_find_the_most_even_game():
+    levels = {"p1": 2, "p2": -1, "p3": 0, "p4": 1, "p5": 0.5, "p6": -0.5}
+    ratings = {
+        p: prior(S, level=lv, stronger="attack" if lv > 0 else None) for p, lv in levels.items()
+    }
+    found = fairest_games(S, ratings, list(levels), 2, tolerance=0.25)
+    every_gap = [
+        abs(predict(S, ratings, a, b).expected_margin)
+        for group in combinations(levels, 4)
+        for a, b in lineups(S, group)
+    ]
+    best = min(every_gap)
+    assert min(gap for *_, gap in found) == pytest.approx(best)
+    for side_a, side_b, gap in found:
+        assert gap <= best + 0.25
+        assert gap == pytest.approx(abs(predict(S, ratings, side_a, side_b).expected_margin))
+    assert len(found) < len(every_gap)

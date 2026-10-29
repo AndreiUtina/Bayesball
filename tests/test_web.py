@@ -1,6 +1,11 @@
 import re
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+
+from app.models import GameType
+from app.rating.margin import FOOSBALL
+from app.web import matchup_url
 
 
 def add_player(client, name, **fields):
@@ -325,3 +330,87 @@ def test_predict_shows_role_icons_above_the_names(client, four):
     assert page.count('class="role-icon"') == 4  # two swords, two shields
     assert page.index('title="Attack"') < page.index(">ann</span>") < page.index('title="Defence"')
     assert 'class="role-icon"' not in client.get("/predict?format=1v1&a=1&b=2").text
+
+
+def test_links_keep_the_roles_of_a_lineup():
+    game_type = GameType.from_settings("Foosball", FOOSBALL)
+    game_type.id = 1
+    swapped = [(7, "defence"), (8, "attack")]  # 8 attacks, so 8 goes first
+    url = matchup_url("/predict", game_type, swapped, [(5, "attack"), (6, "defence")])
+    assert "a=8&a=7&b=5&b=6" in url
+
+
+def add_rated_players(client, levels):
+    """Players with a given experience level (-1 .. 2): name -> id."""
+    ids = {}
+    for name, level in levels.items():
+        body = {"name": name, "game_type_id": 1, "prior": {"level": level}}
+        ids[name] = client.post("/api/players", json=body).json()["id"]
+    return ids
+
+
+def teams_in(location):
+    query = parse_qs(urlsplit(location).query)
+    return {frozenset(map(int, query["a"])), frozenset(map(int, query["b"]))}, query
+
+
+def test_predict_balanced_game(client):
+    ids = add_rated_players(client, {"ace": 2, "new": -1, "avg": 0, "mid": 0})
+    response = client.get("/predict/balanced", follow_redirects=False)
+    assert response.status_code == 303
+    teams, query = teams_in(response.headers["location"])
+    # The only even split: the strongest with the weakest.
+    assert teams == {frozenset({ids["ace"], ids["new"]}), frozenset({ids["avg"], ids["mid"]})}
+    assert query["pick"] == ["balanced"] and query["format"] == ["2v2"]
+    page = client.get(response.headers["location"]).text
+    assert "Balanced game.</strong>" in page and "Another balanced game" in page
+    assert 'aria-current="page">Balanced game</a>' in page
+
+
+def test_predict_random_game(client):
+    ids = add_rated_players(client, {"a": 0, "b": 0, "c": 0, "d": 0, "e": 0})
+    client.patch(f"/api/players/{ids['e']}", json={"active": False})
+    for _ in range(10):
+        location = client.get("/predict/random", follow_redirects=False).headers["location"]
+        teams, query = teams_in(location)
+        players = set().union(*teams)
+        assert len(players) == 4 and ids["e"] not in players  # inactive players are left out
+        assert query["pick"] == ["random"]
+    assert "Random game.</strong>" in client.get(location).text
+
+
+def test_picked_games_with_few_players(client):
+    assert client.get("/predict/random", follow_redirects=False).headers["location"] == (
+        "/predict?game_type_id=1"
+    )
+    add_rated_players(client, {"a": 0, "b": 0, "c": 0})
+    location = client.get("/predict/balanced", follow_redirects=False).headers["location"]
+    assert "format=1v1" in location  # 3 players: one each side
+
+
+def test_balance_the_players_of_a_prediction(client):
+    ids = add_rated_players(client, {"ace": 2, "avg": 0, "new": -1, "mid": 0})
+    # An uneven game: the two best players together.
+    page = client.get(
+        f"/predict?format=2v2&a={ids['ace']}&a={ids['avg']}&b={ids['new']}&b={ids['mid']}"
+    ).text
+    link = re.search(r'href="(/predict/balanced\?[^"]+)"[^>]*>Balance these 4 players', page)[1]
+    response = client.get(link.replace("&amp;", "&"), follow_redirects=False)
+    teams, query = teams_in(response.headers["location"])
+    assert teams == {frozenset({ids["ace"], ids["new"]}), frozenset({ids["avg"], ids["mid"]})}
+    assert query["pick"] == ["these"]
+    balanced = client.get(response.headers["location"]).text
+    assert "Most balanced lineup of these 4 players." in balanced
+    assert ">See all the options</a>" in balanced and "/balance?game_type_id=1&amp;p=" in balanced
+    assert 'aria-current="page">2v2</a>' in balanced
+    assert "Balance these" not in balanced  # it already is the most balanced lineup
+
+
+def test_no_balance_button_for_1v1(client, four):
+    assert "Balance these" not in client.get("/predict?format=1v1&a=1&b=2").text
+
+
+@pytest.mark.parametrize("query", ["p=1&p=2&p=3", "p=1&p=2&p=99&p=3", "p=x"])
+def test_balancing_bad_players_goes_back_to_the_form(client, four, query):
+    response = client.get(f"/predict/balanced?{query}", follow_redirects=False)
+    assert response.headers["location"] == "/predict?game_type_id=1"
