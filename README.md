@@ -1,7 +1,10 @@
 # Bayesball
 
 <p align="center">
-  <img src="app/static/logo-crest.png" alt="Bayesball logo: a football in a crest, with Bayes' theorem around the ring" width="360">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="app/static/logo-crest-dark.png">
+    <img src="app/static/logo-crest-light.png" alt="Bayesball logo: a football in a crest, with Bayes' theorem around the ring" width="300">
+  </picture>
 </p>
 
 Bayesian ratings and match predictions for foosball (1v1 and 2v2 with attack/defence roles),

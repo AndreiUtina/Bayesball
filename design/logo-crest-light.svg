@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 300" role="img"
+<svg xmlns="http://www.w3.org/2000/svg" role="img"
+  viewBox="40 10 280 280"
   aria-label="Bayesball: a football in a crest, with Bayes' theorem around the ring">
   <defs><radialGradient id="ball" cx="0.36" cy="0.3" r="0.75">
     <stop offset="0" stop-color="#FFE3C4"/>
@@ -12,15 +13,14 @@
   </linearGradient>
     <path id="top-arc" d="M 72,150 A 108,108 0 0 1 288,150"/>
     <path id="bottom-arc" d="M 59,150 A 121,121 0 0 0 301,150"/></defs>
-  <rect width="360" height="300" rx="28" fill="#13171F"/>
   <circle cx="180" cy="150" r="134" fill="none"
     stroke="url(#heat)" stroke-width="6"/>
   <circle cx="180" cy="150" r="94" fill="none"
     stroke="#EA580C" stroke-opacity="0.55" stroke-width="2"/>
-  <text font-family="'STIX Two Text', 'Times New Roman', serif" font-style="italic" font-size="19" fill="#FDBA74"
+  <text font-family="'STIX Two Text', 'Times New Roman', serif" font-style="italic" font-size="19" fill="#C2410C"
     letter-spacing="0.3"><textPath href="#top-arc" startOffset="50%"
     text-anchor="middle">P(A|B) = P(B|A) · P(A) / P(B)</textPath></text>
-  <text font-family="'Barlow Condensed', 'Arial Narrow', sans-serif" font-weight="700" font-size="21" fill="#F3EDE7"
+  <text font-family="'Barlow Condensed', 'Arial Narrow', sans-serif" font-weight="700" font-size="21" fill="#1F2328"
     letter-spacing="5"><textPath href="#bottom-arc" startOffset="50%"
     text-anchor="middle">· BAYESBALL ·</textPath></text>
   <clipPath id="ball-edge"><circle cx="180" cy="150" r="62"/></clipPath>

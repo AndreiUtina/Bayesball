@@ -2,10 +2,11 @@
 
     uv run python design/logo.py
 
-writes design/logo-crest.svg (the full crest, with Bayes' theorem around the ring and the name
-along the bottom) and app/static/logo.svg (the compact crest used in the site header and as the
-browser-tab icon). The PNGs (app/static/logo-crest.png for the README and
-app/static/apple-touch-icon.png) are screenshots of these, rendered with the real fonts:
+writes the full crest, with Bayes' theorem around the ring and the name along the bottom, as
+design/logo-crest-dark.svg and design/logo-crest-light.svg (no background, lettering for dark or
+light pages), and app/static/logo.svg (the compact crest used in the site header and as the
+browser-tab icon). The PNGs (app/static/logo-crest-dark.png and logo-crest-light.png for the
+README, app/static/apple-touch-icon.png) are screenshots of these, rendered with the real fonts:
 STIX Two Text Italic and Barlow Condensed Bold, both from Google Fonts.
 """
 
@@ -13,7 +14,6 @@ import math
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAVY = "#13171F"
 MATH = "'STIX Two Text', 'Times New Roman', serif"
 CONDENSED = "'Barlow Condensed', 'Arial Narrow', sans-serif"
 CX, CY = 180, 150  # centre of the crest in the full 360×300 drawing
@@ -67,19 +67,31 @@ def rings() -> str:
     stroke="#EA580C" stroke-opacity="0.55" stroke-width="2"/>"""
 
 
-def full_crest() -> str:
-    """The crest with Bayes' theorem around the top and the name along the bottom, on navy."""
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 300" role="img"
+# Lettering colours for a dark page (like the site and GitHub's dark theme) or a light one.
+LETTERING = {
+    "dark": {"equation": "#FDBA74", "name": "#F3EDE7"},
+    "light": {"equation": "#C2410C", "name": "#1F2328"},
+}
+
+
+def full_crest(page: str = "dark") -> str:
+    """The crest with Bayes' theorem around the top and the name along the bottom.
+
+    No background, so it sits on whatever page shows it; `page` picks lettering that reads on
+    a dark or a light page.
+    """
+    colours = LETTERING[page]
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" role="img"
+  viewBox="{CX - 140} {CY - 140} 280 280"
   aria-label="Bayesball: a football in a crest, with Bayes' theorem around the ring">
   <defs>{GRADIENTS}
     <path id="top-arc" d="M {CX - 108},{CY} A 108,108 0 0 1 {CX + 108},{CY}"/>
     <path id="bottom-arc" d="M {CX - 121},{CY} A 121,121 0 0 0 {CX + 121},{CY}"/></defs>
-  <rect width="360" height="300" rx="28" fill="{NAVY}"/>
   {rings()}
-  <text font-family="{MATH}" font-style="italic" font-size="19" fill="#FDBA74"
+  <text font-family="{MATH}" font-style="italic" font-size="19" fill="{colours["equation"]}"
     letter-spacing="0.3"><textPath href="#top-arc" startOffset="50%"
     text-anchor="middle">P(A|B) = P(B|A) · P(A) / P(B)</textPath></text>
-  <text font-family="{CONDENSED}" font-weight="700" font-size="21" fill="#F3EDE7"
+  <text font-family="{CONDENSED}" font-weight="700" font-size="21" fill="{colours["name"]}"
     letter-spacing="5"><textPath href="#bottom-arc" startOffset="50%"
     text-anchor="middle">· BAYESBALL ·</textPath></text>
   {football(CX, CY, 62)}
@@ -99,6 +111,7 @@ def compact_crest() -> str:
 
 
 if __name__ == "__main__":
-    (ROOT / "design" / "logo-crest.svg").write_text(full_crest())
+    for page in LETTERING:
+        (ROOT / "design" / f"logo-crest-{page}.svg").write_text(full_crest(page))
     (ROOT / "app" / "static" / "logo.svg").write_text(compact_crest())
-    print("wrote design/logo-crest.svg and app/static/logo.svg")
+    print("wrote design/logo-crest-dark.svg, design/logo-crest-light.svg and app/static/logo.svg")

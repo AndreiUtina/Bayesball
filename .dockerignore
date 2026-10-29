@@ -7,5 +7,6 @@
 **/__pycache__
 data
 design
+app/static/logo-crest-*.png
 tests
 *.md
