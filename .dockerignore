@@ -6,5 +6,6 @@
 .ruff_cache
 **/__pycache__
 data
+design
 tests
 *.md

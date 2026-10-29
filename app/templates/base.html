@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2.1.1/css/pico.min.css"
         integrity="sha384-L1dWfspMTHU/ApYnFiMz2QID/PlP1xCW9visvBdbEkOLkSSWsP6ZJWhPw6apiXxU" crossorigin="anonymous">
   <link rel="stylesheet" href="{{ static_url('style.css') }}">
+  <link rel="icon" type="image/svg+xml" href="{{ static_url('logo.svg') }}">
+  <link rel="apple-touch-icon" href="{{ static_url('apple-touch-icon.png') }}">
   <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.11/dist/htmx.min.js" defer
           integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" crossorigin="anonymous"></script>
   {% block head %}{% endblock %}
@@ -16,7 +18,7 @@
   <header class="container">
     <nav>
       <ul>
-        <li><a href="/" class="brand"><img src="{{ static_url('logo.jpg') }}" alt="" class="logo" width="94" height="64"><strong>Bayesball</strong></a></li>
+        <li><a href="/" class="brand"><img src="{{ static_url('logo.svg') }}" alt="" class="logo" width="64" height="64"><strong>Bayesball</strong></a></li>
         <li>
           <a href="https://github.com/AndreiUtina/Bayesball" class="github" target="_blank" rel="noopener"
              aria-label="Bayesball on GitHub" title="Source code on GitHub">
