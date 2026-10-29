@@ -19,7 +19,9 @@ def test_leaderboard_page(client):
 def test_static_files_have_fingerprinted_addresses(visitor):
     page = visitor.get("/").text
     css = re.search(r'href="(/static/style\.css\?v=[0-9a-f]{12})"', page)[1]
-    assert re.search(r'src="/static/logo\.jpg\?v=[0-9a-f]{12}"', page)
+    assert re.search(r'src="/static/logo\.svg\?v=[0-9a-f]{12}"', page)
+    assert re.search(r'<link rel="icon" type="image/svg\+xml" href="/static/logo\.svg\?v=', page)
+    assert re.search(r'<link rel="apple-touch-icon" href="/static/apple-touch-icon\.png\?v=', page)
     versioned = visitor.get(css)
     assert versioned.status_code == 200 and ".viz" in versioned.text
     assert versioned.headers["cache-control"] == "public, max-age=31536000, immutable"
